@@ -1,5 +1,5 @@
 {
-  "about": "Spatial air traffic control for on-screen HUDs. Every HUD gets a reserved slot that never moves at runtime, so one HUD resizing can't push its neighbours. dx/dy = distance from the slot's corner to the screen edges (visible frame, menu bar excluded); w/h = the most space the HUD may ever use. screen: builtin (laptop, else Sidecar/iPad, else primary), primary (menu-bar screen), cursor (screen under the mouse). Check for overlaps: hs -c 'return require(\"modules.hud_layout\").report()' or lua tests/hud_layout_test.lua. Read by Hammerspoon (modules/hud_layout.lua) and TrackpadMixer (Sources/Slots.swift).",
+  "about": "Spatial air traffic control for on-screen HUDs. Every HUD gets a reserved slot that never moves at runtime, so one HUD resizing can't push its neighbours. The slot is the default spot: HUDs Matt drags/resizes remember his frame in hud_positions.json (hud-kit HUDWindow), which then wins. dx/dy = distance from the slot's corner to the screen edges (visible frame, menu bar excluded); w/h = the most space the HUD may ever use. screen: builtin (laptop, else Sidecar/iPad, else primary), primary (menu-bar screen), cursor (screen under the mouse). Check for overlaps: hs -c 'return require(\"modules.hud_layout\").report()' or lua tests/hud_layout_test.lua. Read by Hammerspoon (modules/hud_layout.lua) and TrackpadMixer (~/projects/hud-kit/Sources/Slots.swift).",
   "gap": 8,
   "slots": {
     "piano_hud":      { "corner": "bottomRight", "dx": 24,  "dy": 24,  "w": 300, "h": 150, "screen": "builtin", "owner": "modules/piano_hud.lua" },
@@ -7,10 +7,12 @@
     "song_key":       { "corner": "bottomRight", "dx": 332, "dy": 24,  "w": 240, "h": 144, "screen": "builtin", "owner": "modules/song_key.lua" },
     "trackpad_mixer": { "corner": "bottomRight", "dx": 580, "dy": 24,  "w": 460, "h": 380, "screen": "cursor",  "owner": "~/projects/trackpad-mixer" },
     "claude_notify":  { "corner": "topRight",    "dx": 16,  "dy": 14,  "w": 620, "h": 368, "screen": "primary", "owner": "modules/claude_notify.lua (4 chips x 92px reserved; its code still allows 6, which reach the mixer/piano card on a laptop-only screen: cap pending)" },
+    "claude_control_light": { "corner": "topLeft", "dx": 16, "dy": 14, "w": 360, "h": 52, "screen": "primary", "owner": "modules/claude_control.lua (light tier pill: claude-control ask --light)" },
+    "otp_code":       { "corner": "bottomLeft",  "dx": 14,  "dy": 50,  "w": 240, "h": 56,  "screen": "primary", "owner": "modules/otp_copy.lua (2FA code pill, fades after 12 s)" },
     "reload":         { "corner": "bottomLeft",  "dx": 14,  "dy": 14,  "w": 28,  "h": 28,  "screen": "primary", "owner": "modules/reload_indicator.lua" }
   },
   "exempt": {
-    "claude_control": "centre banner + edge glow while an agent holds input: modal, meant to cover everything",
+    "claude_control": "full tier only: centre banner + edge glow while an agent holds keyboard/mouse; modal, meant to cover everything (light tier uses the claude_control_light slot)",
     "hs.alert": "centre toasts from various modules: transient",
     "eye_breaks": "full-screen dim overlay: modal",
     "lecture_mode": "exit button while lecture mode is on: modal",

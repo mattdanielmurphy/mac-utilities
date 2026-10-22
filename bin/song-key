@@ -56,8 +56,10 @@ def hooktheory(artist, title):
             continue
         text = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
         sections = []
-        for m in re.finditer(r"● (\w[\w\- ]{0,20}?) Key ([A-G][#b♯♭]?) (\w+)", text):
-            sec, tonic, mode = m.group(1), m.group(2), m.group(3)
+        # Hooktheory spaces accidentals off the letter ("E ♭ Dorian"), so allow a gap.
+        for m in re.finditer(r"● (\w[\w\- ]{0,20}?) Key ([A-G]) ?([#b♯♭]?) (\w+)", text):
+            sec, mode = m.group(1), m.group(4)
+            tonic = m.group(2) + m.group(3).replace("♭", "b").replace("♯", "#")
             if (sec, tonic, mode) not in sections:
                 sections.append((sec, tonic, mode))
         if sections:

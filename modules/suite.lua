@@ -30,6 +30,7 @@ M.SHAREABLE = {
   "modules.logic_editor",
   "modules.piano_hud",
   "modules.song_key",
+  "modules.otp_copy",
 }
 
 local shareableSet = {}
@@ -125,7 +126,7 @@ function M.update(manual)
   local task = hs.task.new("/usr/bin/git", function(code, out, err)
     if code ~= 0 then
       print("⚠️ [suite] update failed: " .. tostring(err))
-      if manual then hs.alert.show("Update failed: see Hammerspoon console") end
+      if manual then hs.alert.show("Update failed: see the console (⚙︎ > Console)") end
     elseif manual and out:find("Already up to date") then
       hs.alert.show("Already up to date")
     end

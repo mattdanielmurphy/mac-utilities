@@ -1,6 +1,6 @@
-# Matt's Mac utilities
+# MDMA Studios
 
-This is a list of the Hammerspoon utilities from Matt's Mac that also run on yours. Every one starts **off**. In the ⚙︎ menu bar icon, hover over one to see what it does and click it to switch it on or off. **What Do These Do?** in the same menu shows this page.
+Matt's Mac utilities (MDMA Studios = Matthew Daniel Murphy App Studios), built on Hammerspoon. This is a list of the utilities from Matt's Mac that also run on yours. Every one starts **off**. In the ⚙︎ menu bar icon, hover over one to see what it does and click it to switch it on or off. **What Do These Do?** in the same menu shows this page.
 
 **Ask Claude about them.** Something like "Read ~/.hammerspoon/UTILITIES.md and tell me which of these I'd use." Claude can open `~/.hammerspoon/modules/<file>.lua` for the full details of any one.
 
@@ -51,3 +51,6 @@ This is a list of the Hammerspoon utilities from Matt's Mac that also run on you
 
 ### modules.song_key
 **Song Key HUD.** While music plays, a small pill shows the song's key, looked up on Hooktheory. Click it to open the Hooktheory page. Needs `brew install nowplaying-cli`.
+
+### modules.otp_copy
+**2FA Code Auto-Copy.** When a verification code arrives by text (Messages) or email (Mail), it goes straight to your clipboard and a small pill shows it in the bottom-left corner. Google's "G-123456" codes copy as just the digits. Clipboard managers that respect hidden items won't save the code, and it's wiped from the clipboard after 2 minutes. Needs Full Disk Access for Hammerspoon (System Settings › Privacy & Security › Full Disk Access). Replaces apps like MessAuto or 2FHey; switch those off so codes don't get copied twice.

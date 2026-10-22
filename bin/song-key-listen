@@ -93,8 +93,10 @@ def main():
     ff = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL)
     # Hammerspoon stops us with SIGTERM; take the capture process down too.
+    # SIGKILL: audiotee ignores SIGTERM/SIGINT, and every orphaned copy keeps a
+    # Core Audio tap open until coreaudiod chokes and dictation stops working.
     def stop(*_):
-        ff.terminate()
+        ff.kill()
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
     buf = np.zeros(0, dtype=np.float32)
@@ -110,7 +112,7 @@ def main():
             if len(buf) >= SR * STEP * 2:
                 print(json.dumps(analyze(buf)), flush=True)
     finally:
-        ff.terminate()
+        ff.kill()
 
 
 if __name__ == "__main__":

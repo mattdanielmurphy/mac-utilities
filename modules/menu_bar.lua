@@ -1,17 +1,17 @@
 _G.activeWatchers = _G.activeWatchers or {}
 local ModuleManager = require("modules.module_manager")
+local brand = require("modules.brand")
 
--- Note: The native Hammerspoon menu bar icon can be hidden in Hammerspoon 
--- Preferences -> "Show menu bar icon" if you want to use this consolidated menu.
-
-local mb = hs.menubar.new()
+local mb = hs.menubar.new(true, "AI-OS Controls")
 if mb then
     mb:setTitle("⚙︎")
-    mb:setTooltip("AI-OS Controls")
+    mb:setTooltip(brand.name)
+    -- ⚙︎ carries Reload, Console and Quit, so the stock 🔨 icon is redundant.
+    hs.menuIcon(false)
 
     local function notifyCompanionFailure(details)
         hs.notify.new({
-            title = "AI-OS Controls",
+            title = brand.name,
             informativeText = details or "The companion did not respond. Start it with `la start aios-server` and try again.",
         }):send()
     end
@@ -41,11 +41,11 @@ if mb then
         local suite = require("modules.suite")
         if suite.shared then
             -- Tyler's Mac: no AI-OS companion or lidstay, just the utilities.
-            table.insert(menuItems, { title = "Matt's Utilities", disabled = true })
+            table.insert(menuItems, { title = brand.name, disabled = true })
             table.insert(menuItems, { title = "What Do These Do?", fn = suite.showGuide })
             table.insert(menuItems, { title = "Update Now", fn = function() suite.update(true) end })
         else
-        table.insert(menuItems, { title = "AI-OS Controls", disabled = true })
+        table.insert(menuItems, { title = brand.name, disabled = true })
         table.insert(menuItems, { title = "Open Perplexity", fn = function()
             postCompanionControl("show", { provider = "perplexity" })
         end })
@@ -60,6 +60,10 @@ if mb then
             if gts and gts.show then gts.show() end
         end })
         table.insert(menuItems, require("modules.lid_sleep").menuItem())
+        table.insert(menuItems, { title = "Preview Claude Banner", menu = {
+            { title = "Light pill", fn = function() if claudeControl then claudeControl.demo("light") end end },
+            { title = "Full banner", fn = function() if claudeControl then claudeControl.demo("full") end end },
+        } })
         end
         table.insert(menuItems, { title = "-" })
 
@@ -82,20 +86,25 @@ if mb then
         -- 2. Separator
         table.insert(menuItems, { title = "-" })
         
-        -- 3. Native Hammerspoon actions
+        -- 3. Engine (Hammerspoon) actions
         table.insert(menuItems, { title = "Reload Config", fn = function() hs.reload() end })
         table.insert(menuItems, { title = "Open Config", fn = function() hs.execute("open ~/.hammerspoon/init.lua") end })
         table.insert(menuItems, { title = "-" })
         table.insert(menuItems, { title = "Console...", fn = function() hs.openConsole() end })
         table.insert(menuItems, { title = "Preferences...", fn = function() hs.openPreferences() end })
         table.insert(menuItems, { title = "-" })
-        table.insert(menuItems, { title = "About Hammerspoon", fn = function() hs.openAbout() end })
-        table.insert(menuItems, { title = "Check for Updates...", fn = function() hs.checkForUpdates() end })
+        table.insert(menuItems, { title = "Built on Hammerspoon…", fn = function() hs.openAbout() end })
+        table.insert(menuItems, { title = "Check for Hammerspoon Updates...", fn = function() hs.checkForUpdates() end })
         table.insert(menuItems, { title = "-" })
-        table.insert(menuItems, { title = "Quit Hammerspoon", fn = function() hs.application.get("Hammerspoon"):kill() end })
+        table.insert(menuItems, { title = "Quit " .. brand.name, fn = function() hs.application.get("Hammerspoon"):kill() end })
         
         return menuItems
     end)
     
     _G.activeWatchers.moduleMenuBar = mb
+
+    -- Bartender hides ⚙︎ in its drawer; ⌃⌥⌘M pops the same menu at the mouse.
+    _G.activeWatchers.moduleMenuHotkey = hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "M", function()
+        mb:popupMenu(hs.mouse.absolutePosition())
+    end)
 end

@@ -19,27 +19,71 @@ local activeWatchers = _G.activeWatchers
 hs.allowAppleScript(true)
 require("hs.ipc")
 
+-- An `hs -c` client killed mid-command (timeout, watchdog) leaves a dead reply
+-- port, and replying to it crashes Hammerspoon (SIGTRAP in ipc_sendMessage,
+-- 2026-10-21). Skip replies to ports that are no longer valid.
+do
+  local mt = hs.getObjectMetatable("hs.ipc")
+  if mt and mt.sendMessage and not mt._sendGuarded then
+    local send = mt.sendMessage
+    mt.sendMessage = function(port, ...)
+      if not port:isValid() then return nil end
+      return send(port, ...)
+    end
+    mt._sendGuarded = true
+  end
+end
+
 -- Cap every accessibility call at 0.5 s (macOS default: 6 s). Hammerspoon's key
 -- taps run on the same main thread as its AX queries, so one query to a hung app
 -- (a frozen Claude window) used to stop all typing for seconds.
 hs.axuielement.systemWideElement():setTimeout(0.5)
 
 -- ── Config auto-reloader ────────────────────────────────────────────────────────
--- Watches the entire ~/.hammerspoon/ directory tree for .lua changes and
--- triggers a full reload so edits take effect immediately.
+-- Watches the entire ~/.hammerspoon/ directory tree for .lua changes.
+-- If every changed file is a running module with a stop(), only those modules
+-- are swapped (ModuleManager.reload); the rest keep running. Anything else
+-- (init.lua, shared libs, a failed swap) does a full reload.
 
 -- Debounced: an agent saving several files reloads once, 1.5 s after the last
 -- save, instead of once per file (each reload briefly holds up typing).
 -- Only files Hammerspoon actually loads count (not tests/, tmp/, archive/).
+local pendingFiles = {}
+
+local function _applyChanges()
+  local files = pendingFiles
+  pendingFiles = {}
+  local manager, suite = package.loaded["modules.module_manager"], package.loaded["modules.suite"]
+  if not (manager and suite) then return hs.reload() end
+  local targets = {}
+  for file in pairs(files) do
+    local name = file:match("/modules/([%w_]+)%.lua$")
+    local id
+    for modId, path in pairs(suite.pathOf) do
+      if name and path == "modules." .. name then id = modId end
+    end
+    if not id then return hs.reload() end
+    targets[id] = "modules." .. name
+  end
+  for id, path in pairs(targets) do
+    if not manager.reload(id, path) then return hs.reload() end
+    print("↻ hot-reloaded " .. id .. " (other modules untouched)")
+  end
+  require("modules.reload_indicator").show()
+end
+
 local function _reloadConfig(files)
+  local relevant = false
   for _, file in ipairs(files) do
     if file:sub(-4) == ".lua" and not file:find("/tests/", 1, true)
       and not file:find("/tmp/", 1, true) and not file:find("/archive/", 1, true) then
-      if activeWatchers.configReloadTimer then activeWatchers.configReloadTimer:stop() end
-      activeWatchers.configReloadTimer = hs.timer.doAfter(1.5, hs.reload)
-      return
+      pendingFiles[file] = true
+      relevant = true
     end
   end
+  if not relevant then return end
+  if activeWatchers.configReloadTimer then activeWatchers.configReloadTimer:stop() end
+  activeWatchers.configReloadTimer = hs.timer.doAfter(1.5, _applyChanges)
 end
 
 activeWatchers.configWatcher = hs.pathwatcher.new(os.getenv("HOME") .. "/.hammerspoon/", _reloadConfig)
@@ -105,10 +149,12 @@ safeRegister("modules.ui_recorder")
 safeRegister("modules.ps5_dashboard")
 safeRegister("modules.eye_breaks")
 safeRegister("modules.claude_control")
+safeRegister("modules.action_links") -- http://do.test/... links in chat run whitelisted actions
 safeRegister("modules.claude_notify")
 safeRegister("modules.claude_warm") -- toast before a waiting thread's cache goes cold
 safeRegister("modules.piano_hud")
 safeRegister("modules.song_key")
+safeRegister("modules.otp_copy") -- 2FA codes from Messages/Mail → clipboard (G- stripped)
 safeRegister("modules.fade_skip") -- media keys fade the song out before skipping
 safeRegister("modules.claude_cmd_k")
 safeRegister("modules.hey_claude")

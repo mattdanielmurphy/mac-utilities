@@ -314,12 +314,26 @@ local function redraw()
 end
 
 -- ── Listener (only runs while the pill is up) ─────────────────────────────────
+-- audiotee ignores SIGTERM, and an orphaned copy holds a Core Audio tap open
+-- forever; enough of them wedge coreaudiod and break dictation (2026-10-21).
+local function killOrphanTaps()
+  hs.execute([[/bin/ps -axo pid=,ppid=,comm= | /usr/bin/awk '$2 == 1 && $3 ~ /audiotee$/ {print $1}' | /usr/bin/xargs kill -9 2>/dev/null]])
+end
+
 function stopListener()
-  if activeWatchers.songKeyListen then activeWatchers.songKeyListen:terminate(); activeWatchers.songKeyListen = nil end
+  local t = activeWatchers.songKeyListen
+  if t then
+    activeWatchers.songKeyListen = nil
+    local pid = t:pid()
+    if pid then hs.execute("/usr/bin/pkill -9 -P " .. pid) end
+    t:terminate()
+  end
+  killOrphanTaps()
 end
 
 function startListener()
   if activeWatchers.songKeyListen then return end
+  killOrphanTaps()
   state.ear, state.earStatus = {}, "listening"
   local partial = ""
   local task

@@ -246,6 +246,11 @@ local HTML = [[
   .notes  { position: absolute; left: 20px; top: 116px; right: 20px; font-size: 12px;
     color: rgba(244, 241, 234, 0.55); white-space: nowrap; transition: opacity 0.3s; }
   .past .chord, .past .detail, .past .notes { opacity: 0.6; }
+  .save   { position: absolute; right: 12px; top: 9px; padding: 3px 9px; border-radius: 8px;
+    font-size: 11px; letter-spacing: 0.04em; color: rgba(244, 241, 234, 0.8);
+    background: rgba(244, 241, 234, 0.12); transition: opacity 0.3s; }
+  .save:hover { background: rgba(244, 241, 234, 0.22); }
+  .save.busy { opacity: 0.5; }
   .card { position: absolute; right: 0; width: ]] .. CFG.CARD_WIDTH .. [[px;
     bottom: ]] .. (CFG.HEIGHT + CFG.CARD_GAP) .. [[px; box-sizing: border-box;
     padding: 14px 20px 6px; border-radius: 14px; display: none;
@@ -259,12 +264,27 @@ local HTML = [[
 <div class="card" id="card"></div>
 <div class="panel" id="panel">
   <div class="label" id="label">NOW HOLDING</div>
+  <div class="save" id="save" title="Save this session as a MIDI file">Save MIDI</div>
   <div class="chord" id="chord">–</div>
   <div class="detail" id="detail">&nbsp;</div>
   <div class="notes" id="notes">&nbsp;</div>
 </div><script>
   function send(m) { try { webkit.messageHandlers.pianoHud.postMessage(m); } catch (e) {} }
   document.getElementById('panel').addEventListener('mousedown', function () { send({ type: 'toggle' }); });
+  document.getElementById('save').addEventListener('mousedown', function (e) {
+    e.stopPropagation();   // the rest of the panel opens the chord card
+    if (this.classList.contains('busy')) return;
+    this.classList.add('busy');
+    send({ type: 'saveMidi' });
+  });
+  // Shows the save result on the button for a moment, then puts the label back.
+  function saved(d) {
+    var text = d.text;
+    var b = document.getElementById('save');
+    b.classList.remove('busy');
+    b.textContent = text;
+    setTimeout(function () { b.textContent = 'Save MIDI'; }, 2500);
+  }
   function update(d) {
     document.getElementById('label').textContent = d.past ? 'LAST CHORD' : 'NOW HOLDING';
     document.getElementById('panel').className = 'panel' + (d.past ? ' past' : '');
@@ -310,9 +330,36 @@ end
 
 local render, closeCard
 
+-- Writes the latest session to ~/Documents/Piano Log/MIDI/ and selects it in Finder.
+-- The converter runs as a task so the main thread (and every key tap) never waits on it.
+local SAVE_SCRIPT = os.getenv("HOME") .. "/.hammerspoon/bin/piano-session-midi"
+
+function M.saveMidi(done)
+  flush()   -- the newest notes are still in the buffer
+  state.lastEvent = hs.timer.secondsSinceEpoch()   -- don't fade out mid-save
+  local function report(text)
+    local wv = activeWatchers.pianoHudView
+    if wv and state.ready then wv:evaluateJavaScript("saved(" .. hs.json.encode({ text = text }) .. ")") end
+    if done then done(text) end
+  end
+  local task = hs.task.new(SAVE_SCRIPT, function(code, out, err)
+    activeWatchers.pianoHudSave = nil
+    if code == 0 then
+      report("Saved ✓")
+    else
+      print("⚠️ piano_hud: save failed: " .. tostring(err))
+      report((err or ""):find("No notes") and "No notes yet" or "Save failed")
+    end
+  end, { "--reveal" })
+  activeWatchers.pianoHudSave = task
+  if not task:start() then activeWatchers.pianoHudSave = nil; report("Save failed") end
+end
+
 local function onMessage(msg)
   local body = msg and msg.body or {}
-  if body.type == "toggle" then
+  if body.type == "saveMidi" then
+    M.saveMidi()
+  elseif body.type == "toggle" then
     if state.cardOpen then closeCard() else M.openCard() end
   elseif body.type == "cardHeight" and state.cardOpen then
     state.cardHeight = tonumber(body.h) or 0
