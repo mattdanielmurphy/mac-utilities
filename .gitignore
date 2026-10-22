@@ -1,0 +1,4 @@
+profile
+tmp/
+*.log
+.DS_Store

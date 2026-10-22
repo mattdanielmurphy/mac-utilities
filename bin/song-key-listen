@@ -1,0 +1,117 @@
+#!/Users/matt/.local/share/song-key/venv/bin/python
+"""Listen to system audio and print the key it hears, one JSON line every STEP seconds.
+
+  song-key-listen               all system audio, via audiotee (Core Audio tap,
+                                 ~/.local/bin/audiotee, built from
+                                 github.com/makeusabrew/audiotee; needs the
+                                 System Audio Recording permission)
+  song-key-listen --app <path>  only that app's audio (every process whose command
+                                 runs from inside that .app, so browser helpers count)
+  song-key-listen <device>      an input device instead, recorded with ffmpeg
+
+The audio source is tapped; Essentia (KeyExtractor, EDMA profile) names the key
+over the last WINDOW seconds. The pitch-class profile (HPCP) is printed too, so
+the caller can check how well a web key's scale fits what is actually sounding,
+and "mode" is the church mode on the heard tonic whose notes hold the most energy.
+Silence prints {"silent": true}. Needs the venv from ~/.local/share/song-key
+(uv venv -p 3.12 … && uv pip install essentia numpy).
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+
+import numpy as np
+import essentia
+import essentia.standard as es
+
+essentia.log.infoActive = False
+essentia.log.warningActive = False
+
+SR = 16000
+WINDOW = 20          # seconds of audio per analysis
+STEP = 4             # seconds between analyses
+SILENT_RMS = 0.003
+
+MODES = [("Ionian", [0, 2, 4, 5, 7, 9, 11]), ("Dorian", [0, 2, 3, 5, 7, 9, 10]),
+         ("Phrygian", [0, 1, 3, 5, 7, 8, 10]), ("Lydian", [0, 2, 4, 6, 7, 9, 11]),
+         ("Mixolydian", [0, 2, 4, 5, 7, 9, 10]), ("Aeolian", [0, 2, 3, 5, 7, 8, 10]),
+         ("Locrian", [0, 1, 3, 5, 6, 8, 10])]
+PC = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6,
+      "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
+
+key_extractor = es.KeyExtractor(profileType="edma", sampleRate=SR)
+window = es.Windowing(type="blackmanharris62")
+spectrum = es.Spectrum()
+peaks = es.SpectralPeaks(orderBy="magnitude", magnitudeThreshold=1e-5, minFrequency=40,
+                         maxFrequency=5000, maxPeaks=60, sampleRate=SR)
+hpcp = es.HPCP(size=12, referenceFrequency=440, sampleRate=SR, nonLinear=False,
+               normalized="unitSum")
+
+
+def chroma(audio):
+    total = np.zeros(12)
+    for frame in es.FrameGenerator(audio, frameSize=4096, hopSize=2048):
+        f, m = peaks(spectrum(window(frame)))
+        total += hpcp(f, m)
+    total = np.roll(total, -3)          # Essentia's bin 0 is A (440 Hz); make bin 0 C
+    s = total.sum()
+    return total / s if s > 0 else total
+
+
+def analyze(audio):
+    if float(np.sqrt(np.mean(audio ** 2))) < SILENT_RMS:
+        return {"silent": True}
+    k, scale, strength = key_extractor(audio)
+    c = chroma(audio)
+    tonic = PC.get(k, 0)
+    fits = {name: float(sum(c[(tonic + s) % 12] for s in steps)) for name, steps in MODES}
+    # Prefer the plain major/minor reading unless another mode clearly fits better.
+    home = "Ionian" if scale == "major" else "Aeolian"
+    mode = max(fits, key=fits.get)
+    if fits[mode] - fits[home] < 0.02:
+        mode = home
+    return {"key": f"{k} {scale}", "tonic": tonic, "strength": round(float(strength), 3),
+            "mode": f"{k} " + {"Ionian": "major", "Aeolian": "minor"}.get(mode, mode), "chroma": [round(float(x), 4) for x in c]}
+
+
+def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--app":
+        found = subprocess.run(["/usr/bin/pgrep", "-f", sys.argv[2] + "/"], capture_output=True, text=True)
+        pids = found.stdout.split()
+        if not pids:
+            print(json.dumps({"error": "app not running"}), flush=True)
+            return 1
+        cmd = [os.path.expanduser("~/.local/bin/audiotee"), "--sample-rate", str(SR),
+               "--include-processes", *pids]
+    elif len(sys.argv) > 1:
+        cmd = ["/opt/homebrew/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "avfoundation",
+               "-i", ":" + sys.argv[1], "-ac", "1", "-ar", str(SR), "-f", "s16le", "-"]
+    else:
+        cmd = [os.path.expanduser("~/.local/bin/audiotee"), "--sample-rate", str(SR)]
+    ff = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL)
+    # Hammerspoon stops us with SIGTERM; take the capture process down too.
+    def stop(*_):
+        ff.terminate()
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    buf = np.zeros(0, dtype=np.float32)
+    step_bytes = SR * STEP * 2
+    try:
+        while True:
+            chunk = ff.stdout.read(step_bytes)
+            chunk = chunk[: len(chunk) // 2 * 2]
+            if not chunk:
+                print(json.dumps({"error": "capture stopped"}), flush=True)
+                return 1
+            buf = np.concatenate([buf, np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768.0])[-SR * WINDOW:]
+            if len(buf) >= SR * STEP * 2:
+                print(json.dumps(analyze(buf)), flush=True)
+    finally:
+        ff.terminate()
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)
