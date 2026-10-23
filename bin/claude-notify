@@ -1,0 +1,24 @@
+#!/bin/bash
+# claude-notify "Title" ["Body"] [--kind done|needs|error|info] [--url URL] [--quiet]
+# Shows a toast via the Hammerspoon claude_notify module (MDMA).
+INBOX="$HOME/projects/ai-os/tmp/notify"   # Matt's Mac; same choice as modules/claude_notify.lua
+[ -d "$HOME/projects/ai-os" ] || INBOX="$HOME/Library/Application Support/MDMA/notify"
+mkdir -p "$INBOX"
+title="" body="" kind="done" url="" sound=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --kind) kind="$2"; shift 2 ;;
+    --url) url="$2"; shift 2 ;;
+    --quiet) sound="false"; shift ;;
+    *) if [ -z "$title" ]; then title="$1"; elif [ -z "$body" ]; then body="$1"; fi; shift ;;
+  esac
+done
+[ -z "$title" ] && title="Claude finished"
+name="$(date +%Y%m%d-%H%M%S)-$$.json"
+TITLE="$title" BODY="$body" KIND="$kind" URL="$url" SOUND="$sound" /usr/bin/python3 -c '
+import json, os
+m = {"title": os.environ["TITLE"], "kind": os.environ["KIND"]}
+if os.environ["BODY"]: m["body"] = os.environ["BODY"]
+if os.environ["URL"]: m["url"] = os.environ["URL"]
+if os.environ["SOUND"] == "false": m["sound"] = False
+print(json.dumps(m))' > "$INBOX/.$name" && mv "$INBOX/.$name" "$INBOX/$name"

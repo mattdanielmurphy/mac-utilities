@@ -31,6 +31,11 @@ M.SHAREABLE = {
   "modules.otp_copy",
   "modules.gif_picker",
   "modules.tv_resync",
+  -- Claude tools: CLAUDE_SETUP.md teaches the user's Claude to use them.
+  "modules.claude_control",
+  "modules.claude_notify",
+  "modules.claude_cmd_k",
+  "modules.quote_comment",
 }
 
 -- Modules that only make sense on Matt's Mac, with the reason. Every module
@@ -42,13 +47,9 @@ M.MATT_ONLY = {
   ["modules.lecture_mode"] = "Matt's study apps and school Chrome profile",
   ["modules.ui_recorder"] = "writes into ai-os",
   ["modules.ps5_dashboard"] = "Matt's PS5 controller setup",
-  ["modules.claude_control"] = "agent take-control queue for Matt's agents",
   ["modules.action_links"] = "do.test links need puma-dev",
-  ["modules.claude_notify"] = "Matt's Claude project threads",
   ["modules.claude_warm"] = "Matt's Claude project threads",
-  ["modules.claude_cmd_k"] = "filters to Matt's Claude project",
   ["modules.hey_claude"] = "ai-os voice scripts",
-  ["modules.quote_comment"] = "tuned to Matt's Claude workflow",
   ["modules.trackpad_mixer_summon"] = "needs Matt's trackpad-mixer app",
   ["modules.wifi_home"] = "Matt's home and hotspot networks",
   ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",

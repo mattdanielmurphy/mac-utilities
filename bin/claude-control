@@ -1,0 +1,91 @@
+#!/bin/zsh
+# Ask Matt before posting synthetic keyboard/mouse input. Asks from several
+# agents queue up ("air traffic control"): only one holds control at a time.
+#   claude-control ask "<reason>" [seconds] [--light] [--urgent]
+#       waits its turn, shows the banner;
+#       --light: small corner pill, no glow. For low-impact screen/sound changes
+#           Matt can type through (open a file/app, focus a window, play/pause,
+#           volume, restart audio). Without it: full banner + glow, for typing,
+#           clicking or moving the mouse (Matt must keep hands off). exit 0 = granted (prints "granted <ticket>"),
+#       1 = cancelled (Esc: "not now"), preempted, timed out in the queue, or Hammerspoon unreachable.
+#       3 = STOPPED: Matt pressed Stop (Esc Esc). Stop the whole task, don't ask
+#           again, and report. Later asks from this session return 3 at once.
+#       --urgent jumps the line and preempts a normal holder: ONLY to stop a runaway.
+#       --thread cmsg_…: your project thread (project is read from the id; --project chan_… overrides),
+#       --link <url>: any other link (e.g. claude://code/session_…). Clicking the banner opens it,
+#           so Matt can see who's asking. Always pass one when you know it.
+#       While Matt has snoozed you (30s/1m/5m chips) the wrapper keeps waiting.
+#   claude-control lock "<name>" [--urgent]
+#       same queue, no banner: for deterministic automations (Keyboard Maestro, scripts).
+#   claude-control done [ticket]    release control (pass the ticket from ask/lock)
+#   claude-control state [ticket]   queued:N | pending | granted | cancelled | stopped | preempted | idle
+#   claude-control held [agent]     does this session hold control? granted | pending | none
+#   claude-control blocked          list stopped agents still blocked
+#   claude-control unblock [agent]  let a stopped agent (or all) ask again
+STOP_MSG="stopped: Matt pressed Stop. End this task now: don't ask for control again, don't retry another way; tell him what you were doing and what's left."
+HS=/usr/local/bin/hs
+# Who is asking: the Claude session (stable across its turns), so Stop can
+# block it; its claude pid so Stop can interrupt the turn.
+AGENT=${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-ppid$PPID}}
+AGENT_PID=${CLAUDE_PID:-0}
+[[ $AGENT_PID == <-> ]] || AGENT_PID=0
+AGENT=${AGENT//[^A-Za-z0-9_-]/}
+QUEUE_WAIT=180   # seconds to wait for other agents before giving up
+# `hs -c` can hang right after a Hammerspoon reload even with -t, so run it
+# under a watchdog that kills it after 4s.
+hsc() {
+  perl -e 'alarm 4; exec @ARGV' $HS -t 3 -c "$1" 2>/dev/null | grep -v -E "recursing|Loading extension" | tail -1
+}
+case "$1" in
+  ask|lock)
+    cmd=$1; shift
+    urgent=false; quiet=false; light=false; pos=(); link=""; thread=""
+    project=""   # read from the thread id unless --project is given
+    while (( $# )); do
+      case $1 in
+        --urgent) urgent=true ;;
+        --light) light=true ;;
+        --link) link=$2; shift ;;
+        --thread) thread=$2; shift ;;
+        --project) project=$2; shift ;;
+        *) pos+=("$1") ;;
+      esac
+      shift
+    done
+    # Hammerspoon turns a thread id into the app link (modules/claude_links.lua).
+    [[ -z $link && $thread == cmsg_* ]] && link="${thread//[^A-Za-z0-9_]/}" && [[ $project == chan_* ]] && link="${project//[^A-Za-z0-9_]/}:$link"
+    link=${link//\\/}; link=${link//\"/}; link=${link//$'\n'/}
+    reason=${pos[1]:-"Running a quick test"}; secs=${pos[2]:-3}
+    [[ $cmd == lock ]] && { quiet=true; light=false; secs=0; }
+    [[ $secs == <-> ]] || secs=3
+    reason=${reason//\\/\\\\}; reason=${reason//\"/\\\"}; reason=${reason//$'\n'/ }
+    for try in 1 2 3; do
+      id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\")")
+      [[ $id == t<-> ]] && break
+      sleep 1
+    done
+    [[ $id == t<-> ]] || { echo "hammerspoon unreachable"; exit 1; }
+    deadline=$(( SECONDS + QUEUE_WAIT + secs + 10 ))
+    while (( SECONDS < deadline )); do
+      s=$(hsc "return claudeControl.state(\"$id\")")
+      case $s in
+        granted) echo "granted $id"; exit 0 ;;
+        queued:*) [[ $s != $last ]] && echo "waiting for another agent ($s)" >&2; last=$s ;;
+        snoozed:*) [[ $last != snoozed:* ]] && echo "Matt snoozed this ask (${s#snoozed:}s); still waiting" >&2
+                   last=$s; deadline=$(( SECONDS + ${s#snoozed:} + QUEUE_WAIT + secs + 10 )) ;;
+        pending|starting|"") ;;
+        stopped) echo "$STOP_MSG"; exit 3 ;;
+        cancelled) echo "cancelled: Matt said not now. Don't ask again on your own; tell him what you need control for and wait for his go."; exit 1 ;;
+        *) echo "$s"; exit 1 ;;   # preempted, dropped, error, idle
+      esac
+      sleep 0.25
+    done
+    hsc "return claudeControl.done(\"$id\")" >/dev/null
+    echo timeout; exit 1 ;;
+  done)  [[ -n $2 ]] && hsc "return claudeControl.done(\"$2\")" || hsc 'return claudeControl.done()' ;;
+  held)   hsc "return claudeControl.heldBy(\"${2:-$AGENT}\")" ;;   # granted | pending | none
+  blocked) hsc 'return claudeControl.blocked()' ;;
+  unblock) [[ -n $2 ]] && hsc "return claudeControl.unblock(\"${2//[^A-Za-z0-9_-]/}\")" || hsc 'return claudeControl.unblock()' ;;
+  state) [[ -n $2 ]] && hsc "return claudeControl.state(\"$2\")" || hsc 'return claudeControl.state()' ;;
+  *) echo "usage: claude-control ask <reason> [secs] [--light] [--urgent] [--thread cmsg_… | --link url] | lock <name> [--urgent] | done [ticket] | state [ticket] | blocked | unblock [agent]"; exit 2 ;;
+esac

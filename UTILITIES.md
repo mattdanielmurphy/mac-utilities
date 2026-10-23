@@ -4,6 +4,8 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 
 **Ask Claude about them.** Something like "Read ~/.hammerspoon/UTILITIES.md and tell me which of these I'd use." Claude can open `~/.hammerspoon/modules/<file>.lua` for the full details of any one.
 
+**Using Claude Code?** Tell it: "Read ~/.hammerspoon/CLAUDE_SETUP.md and do it." It sets up the Claude tools below (take-control banner, toasts) so your Claude uses them.
+
 **Updates arrive on their own.** Your Mac checks for updates every 15 minutes and whenever it wakes, and Hammerspoon reloads. ⚙︎ > Update Now pulls straight away. If you edit these files yourself, updates stop (the pull won't overwrite your edits), so keep your own changes in a separate file.
 
 ## Utilities
@@ -54,3 +56,15 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 
 ### modules.tv_resync
 **TV Re-sync.** For a Mac driving a TV through a USB-C hub with the lid shut: when the TV comes back on showing "no signal", this does what opening the lid would (blanks the display for ~4 seconds and wakes it). It fires on its own when the display disappears, on your first touch after 10 minutes idle (works at the lock screen), and after the Mac wakes, all only with the lid shut. ⌃⌥R re-syncs any time. To limit it to one screen, set `display.nameContains` (e.g. `TV`) in `~/.hammerspoon/tweaks/tv_resync.json`. From Tyler's tvresync; if you still run that app, quit it so they don't both re-sync.
+
+### modules.claude_control
+**Claude Take-Control Banner.** Before Claude types, clicks or switches apps on your Mac, it asks first: an orange banner says what it wants to do and why, and it waits its turn behind any other Claude. Esc means "not now", Esc twice or Stop ends that task. Small changes (opening a file, play/pause) get a small pill instead. Needs Claude set up to use it: see `CLAUDE_SETUP.md`.
+
+### modules.claude_notify
+**Claude Toasts.** Quiet corner toasts when Claude finishes something or needs you, tinted by kind (green done, amber needs you, red error). Click one to open the thread. Claude sends them with `~/.hammerspoon/bin/claude-notify "Title" "Body"`; `CLAUDE_SETUP.md` teaches it when.
+
+### modules.claude_cmd_k
+**Claude Cmd-K → Project Filter.** In the Claude app, ⌘K opens the palette already filtered to the current project. ⌘⇧K gives the plain palette. Change or clear what it types with `palette.filter` in `~/.hammerspoon/tweaks/claude_cmd_k.json`.
+
+### modules.quote_comment
+**Quote + Dictate for Claude (⌥R).** Highlight text anywhere and press ⌥R: it lands in Claude's message box as a quote and dictation starts. Talk, press Return, and it queues; repeat for more quotes. Plain Return in an empty box sends the whole batch as one message. ⌥⇧R queues a quote with no comment.
