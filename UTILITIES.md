@@ -50,14 +50,7 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 **2FA Code Auto-Copy.** When a verification code arrives by text (Messages) or email (Mail), it goes straight to your clipboard and a small pill shows it in the bottom-left corner. Google's "G-123456" codes copy as just the digits. Clipboard managers that respect hidden items won't save the code, and it's wiped from the clipboard after 2 minutes. Needs Full Disk Access for Hammerspoon (System Settings › Privacy & Security › Full Disk Access). Replaces apps like MessAuto or 2FHey; switch those off so codes don't get copied twice.
 
 ### modules.gif_picker
-**GIF Picker (⌃⌥⌘G).** A window of GIFs that aren't lame: the top posts of r/HighQualityGifs and r/reactiongifs (this week or all time), no account or API key needed. Click a GIF to copy it, then ⌘V into Messages, Slack or Discord (it stays animated). Hover and click ☆ to keep one in your Starred stash. Type to filter, Return searches Reddit, Esc closes. Change the subreddits, tile size and cache time in the Tweaks panel (⌃⌥⌘T).
-
-## Shelved
-
-Not loaded any more (2026-10-22). To revive one, uncomment it in `init.lua` and move it back above.
-
-- `modules.right_command_raycast`: **Right ⌘ → Raycast.** Hold the right ⌘ key and start typing: Raycast (or another launcher you pick in its settings) opens with what you typed. Escape cancels. Needs Raycast.
-- `modules.chrome_cmd_e`: **Chrome ⌘E → ⌘⌥G.** In Google Chrome, ⌘E sends ⌘⌥G instead. It's niche, so leave it off unless you know you want it.
+**GIF Picker (⌃⌥⌘G).** A window of GIFs that aren't lame. **Curated** mixes thousands of GIFs hand-collected by people on Are.na (de-duplicated, reshuffled daily, ⤮ for a new mix); **Reddit best** is the all-time top of r/HighQualityGifs and r/reactiongifs; **Starred** is your own stash (hover a GIF, click ☆). Type and press Return to search all of it plus Reddit's GIF subreddits. Click a GIF to copy it, then ⌘V into Messages, Slack or Discord (it stays animated). No account or API key. Channels, subreddits, tile size and loading speed are in the Tweaks panel (⌃⌥⌘T).
 
 ### modules.tv_resync
 **TV Re-sync.** For a Mac driving a TV through a USB-C hub with the lid shut: when the TV comes back on showing "no signal", this does what opening the lid would (blanks the display for ~4 seconds and wakes it). It fires on its own when the display disappears, on your first touch after 10 minutes idle (works at the lock screen), and after the Mac wakes, all only with the lid shut. ⌃⌥R re-syncs any time. To limit it to one screen, set `display.nameContains` (e.g. `TV`) in `~/.hammerspoon/tweaks/tv_resync.json`. From Tyler's tvresync; if you still run that app, quit it so they don't both re-sync.

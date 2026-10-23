@@ -164,7 +164,7 @@ safeRegister("modules.trackpad_mixer_summon") -- ⌃⌥⌘V: mixer on the built-
 safeRegister("modules.wifi_home") -- on the iPhone hotspot with home Wi-Fi in range → rejoin home
 safeRegister("modules.tv_resync") -- ⌃⌥R: TV stuck on "no signal" with the lid shut → re-sync it
 safeRegister("modules.tweaks_panel") -- ⌃⌥⌘T: sliders for every app's tweaks.json
-safeRegister("modules.gif_picker") -- ⌃⌥⌘G: GIFs from r/HighQualityGifs + r/reactiongifs, click copies
+safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies
 
 
 -- ── Startup confirmation ─────────────────────────────────────────────────────────
