@@ -7,10 +7,21 @@
 
 local M = {}
 
-local SIZE   = 28
-local MARGIN = 14
-local HOLD   = 1.2   -- seconds fully visible
-local FADE   = 0.8   -- seconds to fade out
+-- Feel knobs: ~/.hammerspoon/tweaks/reload_indicator.json, or the Tweaks panel (⌃⌥⌘T).
+local T = require("modules.tweaks").open{
+  app = "Reload indicator",
+  file = require("modules.tweaks").dir .. "/reload_indicator.json",
+  knobs = {
+    ["badge.size"]   = { 28, min = 16, max = 64, step = 1, note = "Box size (px)" },
+    ["badge.margin"] = { 14, min = 0, max = 60, step = 1, note = "Distance from the screen corner (px)" },
+    ["badge.text"]   = { 20, min = 10, max = 48, step = 1, note = "Glyph size (pt)" },
+    ["fade.hold"]    = { 1.2, min = 0, max = 5, step = 0.1, note = "Seconds fully visible" },
+    ["fade.out"]     = { 0.8, min = 0, max = 3, step = 0.05, note = "Seconds to fade out" },
+    ["look.darkAlpha"]  = { 0.55, min = 0.05, max = 1, step = 0.05, note = "Opacity in dark mode" },
+    ["look.lightAlpha"] = { 0.45, min = 0.05, max = 1, step = 0.05, note = "Opacity in light mode" },
+  },
+  onChange = function() M.show() end, -- preview each change
+}
 
 local canvas, timer
 
@@ -22,6 +33,7 @@ function M.show()
   if timer then timer:stop() end
   if canvas then canvas:delete() end
 
+  local SIZE, MARGIN, HOLD, FADE = T("badge.size"), T("badge.margin"), T("fade.hold"), T("fade.out")
   local f = hs.screen.primaryScreen():frame()
   canvas = hs.canvas.new({ x = f.x + MARGIN, y = f.y + f.h - SIZE - MARGIN, w = SIZE, h = SIZE })
   canvas:level(hs.canvas.windowLevels.overlay)
@@ -31,8 +43,8 @@ function M.show()
   canvas:appendElements({
     type = "text", text = "↻",
     frame = { x = 0, y = 0, w = SIZE, h = SIZE },
-    textSize = 20, textAlignment = "center",
-    textColor = isDark() and { white = 1, alpha = 0.55 } or { white = 0.15, alpha = 0.45 },
+    textSize = T("badge.text"), textAlignment = "center",
+    textColor = isDark() and { white = 1, alpha = T("look.darkAlpha") } or { white = 0.15, alpha = T("look.lightAlpha") },
   })
   canvas:show()
 

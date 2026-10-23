@@ -6,9 +6,10 @@
     "piano_card":     { "corner": "bottomRight", "dx": 24,  "dy": 182, "w": 380, "h": 340, "screen": "builtin", "owner": "modules/piano_hud.lua (click card above the HUD)" },
     "song_key":       { "corner": "bottomRight", "dx": 332, "dy": 24,  "w": 240, "h": 144, "screen": "builtin", "owner": "modules/song_key.lua" },
     "trackpad_mixer": { "corner": "bottomRight", "dx": 580, "dy": 24,  "w": 460, "h": 380, "screen": "cursor",  "owner": "~/projects/trackpad-mixer" },
-    "claude_notify":  { "corner": "topRight",    "dx": 16,  "dy": 14,  "w": 620, "h": 368, "screen": "primary", "owner": "modules/claude_notify.lua (4 chips x 92px reserved; its code still allows 6, which reach the mixer/piano card on a laptop-only screen: cap pending)" },
-    "claude_control_light": { "corner": "topLeft", "dx": 16, "dy": 14, "w": 360, "h": 52, "screen": "primary", "owner": "modules/claude_control.lua (light tier pill: claude-control ask --light)" },
+    "claude_control_light": { "corner": "topRight", "dx": 16, "dy": 14, "w": 432, "h": 62, "screen": "primary", "owner": "modules/claude_control.lua (light tier pill: claude-control ask --light; top right per Matt 2026-10-22)" },
+    "claude_notify":  { "corner": "topRight",    "dx": 16,  "dy": 84,  "w": 620, "h": 276, "screen": "primary", "owner": "modules/claude_notify.lua (below the control pill; 3 chips x 92px reserved; its code still allows 6, which reach the mixer/piano card on a laptop-only screen: cap pending)" },
     "otp_code":       { "corner": "bottomLeft",  "dx": 14,  "dy": 50,  "w": 240, "h": 56,  "screen": "primary", "owner": "modules/otp_copy.lua (2FA code pill, fades after 12 s)" },
+    "wifi_home":      { "corner": "bottomLeft",  "dx": 14,  "dy": 114, "w": 240, "h": 26,  "screen": "primary", "owner": "modules/wifi_home.lua (Wi-Fi → home note after rejoining home, fades)" },
     "reload":         { "corner": "bottomLeft",  "dx": 14,  "dy": 14,  "w": 28,  "h": 28,  "screen": "primary", "owner": "modules/reload_indicator.lua" }
   },
   "exempt": {
@@ -17,6 +18,8 @@
     "eye_breaks": "full-screen dim overlay: modal",
     "lecture_mode": "exit button while lecture mode is on: modal",
     "logic_editor": "on-demand editor window, user-placed",
+    "tweaks_panel": "⌃⌥⌘T Tweaks panel: a standard titled window, user-placed, frame remembered",
+    "gif_picker": "⌃⌥⌘G GIF picker: a standard titled window, user-placed, frame remembered",
     "ps5_dashboard": "follows the controller cursor",
     "quote_comment": "queued-count pill anchored to Claude's window above its message box, not a screen corner"
   }

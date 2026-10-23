@@ -33,6 +33,7 @@ do
     mt._sendGuarded = true
   end
 end
+pcall(require, "modules._keyprobe") -- TEMP key-timing test
 
 -- Cap every accessibility call at 0.5 s (macOS default: 6 s). Hammerspoon's key
 -- taps run on the same main thread as its AX queries, so one query to a hung app
@@ -132,10 +133,10 @@ local function safeRegister(modulePath)
 end
 
 safeRegister("modules.input_guard") -- first: rate-limits scripted keystrokes
-safeRegister("modules.right_command_raycast")
-safeRegister("modules.chrome_cmd_e")
+-- shelved 2026-10-22 (Matt): modules.right_command_raycast
+-- shelved 2026-10-22 (Matt): modules.chrome_cmd_e
 safeRegister("modules.keybindings")
-safeRegister("modules.antigravity_submit")
+-- shelved 2026-10-22 (Matt): modules.antigravity_submit
 safeRegister("modules.clipboard")
 safeRegister("modules.qwerty_midi")
 safeRegister("modules.gemini_thread_search")
@@ -159,6 +160,10 @@ safeRegister("modules.fade_skip") -- media keys fade the song out before skippin
 safeRegister("modules.claude_cmd_k")
 safeRegister("modules.hey_claude")
 safeRegister("modules.quote_comment") -- ⌥R: quote into Claude's box + dictate, queue, Return sends all
+safeRegister("modules.trackpad_mixer_summon") -- ⌃⌥⌘V: mixer on the built-in trackpad, one go
+safeRegister("modules.wifi_home") -- on the iPhone hotspot with home Wi-Fi in range → rejoin home
+safeRegister("modules.tweaks_panel") -- ⌃⌥⌘T: sliders for every app's tweaks.json
+safeRegister("modules.gif_picker") -- ⌃⌥⌘G: GIFs from r/HighQualityGifs + r/reactiongifs, click copies
 
 
 -- ── Startup confirmation ─────────────────────────────────────────────────────────

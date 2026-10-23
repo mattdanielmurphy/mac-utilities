@@ -1,10 +1,10 @@
-# MDMA Studios
+# MDMA: Matt Daniel Murphy's Appothecary
 
-Matt's Mac utilities (MDMA Studios = Matthew Daniel Murphy App Studios), built on Hammerspoon. This is a list of the utilities from Matt's Mac that also run on yours. Every one starts **off**. In the ⚙︎ menu bar icon, hover over one to see what it does and click it to switch it on or off. **What Do These Do?** in the same menu shows this page.
+Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from Matt's Mac that also run on yours. Every one starts **off**. In the ⚙︎ menu bar icon, hover over one to see what it does and click it to switch it on or off. **What Do These Do?** in the same menu shows this page.
 
 **Ask Claude about them.** Something like "Read ~/.hammerspoon/UTILITIES.md and tell me which of these I'd use." Claude can open `~/.hammerspoon/modules/<file>.lua` for the full details of any one.
 
-**Updates arrive on their own.** Your Mac pulls updates once an hour and Hammerspoon reloads. ⚙︎ > Update Now pulls straight away. If you edit these files yourself, updates stop (the pull won't overwrite your edits), so keep your own changes in a separate file.
+**Updates arrive on their own.** Your Mac checks for updates every 15 minutes and whenever it wakes, and Hammerspoon reloads. ⚙︎ > Update Now pulls straight away. If you edit these files yourself, updates stop (the pull won't overwrite your edits), so keep your own changes in a separate file.
 
 ## Utilities
 
@@ -28,12 +28,6 @@ Matt's Mac utilities (MDMA Studios = Matthew Daniel Murphy App Studios), built o
 ### modules.selection_wrap
 **Selection Wrapping.** Select text and type `(`, `[`, `{`, a quote or a backtick, and it wraps the selection instead of replacing it, like a code editor does.
 
-### modules.right_command_raycast
-**Right ⌘ → Raycast.** Hold the right ⌘ key and start typing: Raycast (or another launcher you pick in its settings) opens with what you typed. Escape cancels. Needs Raycast.
-
-### modules.chrome_cmd_e
-**Chrome ⌘E → ⌘⌥G.** In Google Chrome, ⌘E sends ⌘⌥G instead. It's niche, so leave it off unless you know you want it.
-
 ### modules.keybindings
 **CloudMounter Popup Guard.** Closes CloudMounter's "upgrade" nag window automatically. Only useful if you use CloudMounter.
 
@@ -54,3 +48,13 @@ Matt's Mac utilities (MDMA Studios = Matthew Daniel Murphy App Studios), built o
 
 ### modules.otp_copy
 **2FA Code Auto-Copy.** When a verification code arrives by text (Messages) or email (Mail), it goes straight to your clipboard and a small pill shows it in the bottom-left corner. Google's "G-123456" codes copy as just the digits. Clipboard managers that respect hidden items won't save the code, and it's wiped from the clipboard after 2 minutes. Needs Full Disk Access for Hammerspoon (System Settings › Privacy & Security › Full Disk Access). Replaces apps like MessAuto or 2FHey; switch those off so codes don't get copied twice.
+
+### modules.gif_picker
+**GIF Picker (⌃⌥⌘G).** A window of GIFs that aren't lame: the top posts of r/HighQualityGifs and r/reactiongifs (this week or all time), no account or API key needed. Click a GIF to copy it, then ⌘V into Messages, Slack or Discord (it stays animated). Hover and click ☆ to keep one in your Starred stash. Type to filter, Return searches Reddit, Esc closes. Change the subreddits, tile size and cache time in the Tweaks panel (⌃⌥⌘T).
+
+## Shelved
+
+Not loaded any more (2026-10-22). To revive one, uncomment it in `init.lua` and move it back above.
+
+- `modules.right_command_raycast`: **Right ⌘ → Raycast.** Hold the right ⌘ key and start typing: Raycast (or another launcher you pick in its settings) opens with what you typed. Escape cancels. Needs Raycast.
+- `modules.chrome_cmd_e`: **Chrome ⌘E → ⌘⌥G.** In Google Chrome, ⌘E sends ⌘⌥G instead. It's niche, so leave it off unless you know you want it.

@@ -27,6 +27,16 @@ end
 for path in pairs(documented) do
   if not listed[path] then fail(path .. " is in UTILITIES.md but not shareable") end
 end
+-- Every module init.lua loads is tagged exactly once: public (SHAREABLE) or MATT_ONLY.
+local init = assert(io.open("init.lua")):read("*a")
+for path in init:gmatch('safeRegister%("(modules%.[%w_]+)"%)') do
+  local public, private = listed[path], suite.MATT_ONLY[path] ~= nil
+  if not public and not private then fail(path .. " is untagged: add it to SHAREABLE or MATT_ONLY") end
+  if public and private then fail(path .. " is both SHAREABLE and MATT_ONLY") end
+end
+for path in pairs(suite.MATT_ONLY) do
+  if not init:find('"' .. path .. '"', 1, true) then fail(path .. " is MATT_ONLY but init.lua never loads it") end
+end
 assert(suite.canLoad("modules.claude_control") == not suite.shared)
 print(fails == 0 and ("ok: " .. #suite.SHAREABLE .. " shareable modules documented") or (fails .. " failures"))
 os.exit(fails == 0 and 0 or 1)

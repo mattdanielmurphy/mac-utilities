@@ -22,8 +22,6 @@ M.SHAREABLE = {
   "modules.fade_skip",
   "modules.wake_mute",
   "modules.selection_wrap",
-  "modules.right_command_raycast",
-  "modules.chrome_cmd_e",
   "modules.keybindings",
   "modules.input_guard",
   "modules.clamshell_guard",
@@ -31,6 +29,28 @@ M.SHAREABLE = {
   "modules.piano_hud",
   "modules.song_key",
   "modules.otp_copy",
+  "modules.gif_picker",
+}
+
+-- Modules that only make sense on Matt's Mac, with the reason. Every module
+-- init.lua loads must be in SHAREABLE or here (tests/suite_test.lua checks), so
+-- a new module can't slip into the public export, or out of it, by accident.
+M.MATT_ONLY = {
+  ["modules.qwerty_midi"] = "needs ~/projects/qwerty-midi-hammerspoon",
+  ["modules.gemini_thread_search"] = "searches Matt's thread archive",
+  ["modules.lecture_mode"] = "Matt's study apps and school Chrome profile",
+  ["modules.ui_recorder"] = "writes into ai-os",
+  ["modules.ps5_dashboard"] = "Matt's PS5 controller setup",
+  ["modules.claude_control"] = "agent take-control queue for Matt's agents",
+  ["modules.action_links"] = "do.test links need puma-dev",
+  ["modules.claude_notify"] = "Matt's Claude project threads",
+  ["modules.claude_warm"] = "Matt's Claude project threads",
+  ["modules.claude_cmd_k"] = "filters to Matt's Claude project",
+  ["modules.hey_claude"] = "ai-os voice scripts",
+  ["modules.quote_comment"] = "tuned to Matt's Claude workflow",
+  ["modules.trackpad_mixer_summon"] = "needs Matt's trackpad-mixer app",
+  ["modules.wifi_home"] = "Matt's home and hotspot networks",
+  ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",
 }
 
 local shareableSet = {}
@@ -120,7 +140,7 @@ end
 -- config watcher, which reloads Hammerspoon. --ff-only refuses rather than
 -- merging if the clone has local commits, so nothing of Tyler's is overwritten.
 
-local UPDATE_EVERY = 60 * 60
+local UPDATE_EVERY = 15 * 60 -- plus on every wake, so a fix lands within minutes
 
 function M.update(manual)
   local task = hs.task.new("/usr/bin/git", function(code, out, err)
@@ -140,6 +160,11 @@ function M.startUpdater()
   _G.activeWatchers = _G.activeWatchers or {}
   _G.activeWatchers.suiteFirstUpdate = hs.timer.doAfter(60, function() M.update(false) end)
   _G.activeWatchers.suiteUpdater = hs.timer.doEvery(UPDATE_EVERY, function() M.update(false) end)
+  _G.activeWatchers.suiteWake = hs.caffeinate.watcher.new(function(event)
+    if event == hs.caffeinate.watcher.systemDidWake then
+      _G.activeWatchers.suiteWakeUpdate = hs.timer.doAfter(20, function() M.update(false) end) -- Wi-Fi rejoins first
+    end
+  end):start()
 end
 
 return M
