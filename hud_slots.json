@@ -19,6 +19,7 @@
     "lecture_mode": "exit button while lecture mode is on: modal",
     "logic_editor": "on-demand editor window, user-placed",
     "tweaks_panel": "⌃⌥⌘T Tweaks panel: a standard titled window, user-placed, frame remembered",
+    "palette": "⌥Space search palette (~/projects/claude-palette): on-demand, centred upper third, user-placed via hud-kit HUDWindow, frame remembered",
     "gif_picker": "⌃⌥⌘G GIF picker: a standard titled window, user-placed, frame remembered",
     "ps5_dashboard": "follows the controller cursor",
     "quote_comment": "queued-count pill anchored to Claude's window above its message box, not a screen corner"

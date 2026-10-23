@@ -160,6 +160,7 @@ safeRegister("modules.fade_skip") -- media keys fade the song out before skippin
 safeRegister("modules.claude_cmd_k")
 safeRegister("modules.hey_claude")
 safeRegister("modules.quote_comment") -- ⌥R: quote into Claude's box + dictate, queue, Return sends all
+safeRegister("modules.thread_queue") -- ⏳ pill on Claude while a project thread has a /q message queued
 safeRegister("modules.trackpad_mixer_summon") -- ⌃⌥⌘V: mixer on the built-in trackpad, one go
 safeRegister("modules.wifi_home") -- on the iPhone hotspot with home Wi-Fi in range → rejoin home
 safeRegister("modules.tv_resync") -- ⌃⌥R: TV stuck on "no signal" with the lid shut → re-sync it

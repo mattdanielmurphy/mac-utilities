@@ -589,19 +589,15 @@ updateBadge = function(hidden)
 
   local accent, alpha = T("look.accent"), T("look.alpha")
   local r = { xRadius = h / 2, yRadius = h / 2 }
-  local function label(text, color)
-    return hs.styledtext.new(text, { font = { name = ".AppleSystemUIFont", size = size },
-      color = color, paragraphStyle = { alignment = "center" } })
-  end
+  local pill = require("modules.claude_pill")
+  local function label(text, color) return pill.label(text, size, color) end
   local ty = (h - size * 1.3) / 2
   local x2, x3 = PILL_W + gap, PILL_W + QUEUE_W + gap * 2
   local queueAlpha = pending and alpha or T("look.dimAlpha")
-  local els = {
-    -- count pill: click for the menu
-    { id = "pill", type = "rectangle", action = "fill", fillColor = { hex = accent, alpha = alpha },
-      frame = { x = 0, y = 0, w = PILL_W, h = h }, roundedRectRadii = r, trackMouseUp = true },
-    { type = "text", frame = { x = 0, y = ty, w = PILL_W, h = h },
-      text = label("❝ " .. #queue .. " queued", { white = 1 }) },
+  -- count pill (shared look with thread_queue.lua): click for the menu
+  local els = pill.elements{ id = "pill", w = PILL_W, h = h, size = size, accent = accent, alpha = alpha,
+    text = "❝ " .. #queue .. " queued" }
+  for _, el in ipairs{
     -- Queue: the default (Return) while a quote + comment is in the box
     { id = "queue", type = "rectangle", action = "fill", fillColor = { white = 1, alpha = queueAlpha },
       frame = { x = x2, y = 0, w = QUEUE_W, h = h }, roundedRectRadii = r, trackMouseUp = true },
@@ -616,7 +612,7 @@ updateBadge = function(hidden)
       frame = { x = x3 + 0.5, y = 0.5, w = SEND_W - 1, h = h - 1 }, roundedRectRadii = r },
     { type = "text", frame = { x = x3, y = ty, w = SEND_W, h = h },
       text = label(pending and "Send all ⌘⏎" or "Send all ⏎", { white = 0.15 }) },
-  }
+  } do els[#els + 1] = el end
   c:replaceElements(els)
   if hidden then return c end
   c:show()
