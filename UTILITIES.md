@@ -58,3 +58,6 @@ Not loaded any more (2026-10-22). To revive one, uncomment it in `init.lua` and 
 
 - `modules.right_command_raycast`: **Right ⌘ → Raycast.** Hold the right ⌘ key and start typing: Raycast (or another launcher you pick in its settings) opens with what you typed. Escape cancels. Needs Raycast.
 - `modules.chrome_cmd_e`: **Chrome ⌘E → ⌘⌥G.** In Google Chrome, ⌘E sends ⌘⌥G instead. It's niche, so leave it off unless you know you want it.
+
+### modules.tv_resync
+**TV Re-sync.** For a Mac driving a TV through a USB-C hub with the lid shut: when the TV comes back on showing "no signal", this does what opening the lid would (blanks the display for ~4 seconds and wakes it). It fires on its own when the display disappears, on your first touch after 10 minutes idle (works at the lock screen), and after the Mac wakes, all only with the lid shut. ⌃⌥R re-syncs any time. To limit it to one screen, set `display.nameContains` (e.g. `TV`) in `~/.hammerspoon/tweaks/tv_resync.json`. From Tyler's tvresync; if you still run that app, quit it so they don't both re-sync.

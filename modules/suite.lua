@@ -30,6 +30,7 @@ M.SHAREABLE = {
   "modules.song_key",
   "modules.otp_copy",
   "modules.gif_picker",
+  "modules.tv_resync",
 }
 
 -- Modules that only make sense on Matt's Mac, with the reason. Every module

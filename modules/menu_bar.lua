@@ -18,7 +18,7 @@ local GROUPS = {
         "qwerty_midi", "piano_hud", "song_key", "fade_skip", "wake_mute", "trackpad_mixer_summon" } },
     { title = "Focus & Study", icon = "📚", ids = { "eye_breaks", "lecture_mode", "logic_editor" } },
     { title = "Mac & Devices", icon = "💻", ids = {
-        "clamshell_guard", "wifi_home", "ps5_dashboard", "cloud_mounter_guard", "tweaks_panel" } },
+        "clamshell_guard", "tv_resync", "wifi_home", "ps5_dashboard", "cloud_mounter_guard", "tweaks_panel" } },
 }
 local OTHER = { title = "Other", icon = "🧩" }
 
