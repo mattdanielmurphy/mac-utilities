@@ -6,6 +6,8 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 
 **Using Claude Code?** Tell it: "Read ~/.hammerspoon/CLAUDE_SETUP.md and do it." It sets up the Claude tools below (take-control banner, toasts) so your Claude uses them.
 
+**Voice calls that save themselves.** `voice/` is a connector for Claude's voice chat: every call is saved as a note on your Mac, and voice Claude can search past calls and read your files. Tell Claude Code: "Read ~/.hammerspoon/voice/SETUP.md and do it." (Needs a paid Claude plan and a free Tailscale account.)
+
 **Updates arrive on their own.** Your Mac checks for updates every 15 minutes and whenever it wakes, and Hammerspoon reloads. ⚙︎ > Update Now pulls straight away. If you edit these files yourself, updates stop (the pull won't overwrite your edits), so keep your own changes in a separate file.
 
 ## Utilities
