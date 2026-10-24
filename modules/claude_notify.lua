@@ -42,8 +42,8 @@ local T = hs and require("modules.tweaks").open{
   app = "Claude notification chips",
   file = require("modules.tweaks").dir .. "/claude_notify.json",
   knobs = {
-    ["chips.maxLaptop"] = { 4, min = 1, max = 6, step = 1,
-      note = "Most chips stacked at once when only the laptop screen is connected (hud_slots.json reserves room for 4); extras wait in the queue" },
+    ["chips.maxLaptop"] = { 3, min = 1, max = 6, step = 1,
+      note = "Most chips stacked at once when only the laptop screen is connected (hud_slots.json reserves room for 3; a 4th reaches the piano card); extras wait in the queue" },
   },
 }
 local VERSION = "8"
@@ -82,7 +82,7 @@ end
 -- Laptop-only (no TV/second screen): cap the stack so chips never reach the mixer / piano card.
 local function slotLimit()
   if #hs.screen.allScreens() <= 1 then
-    return math.min(MAX_SLOTS, math.floor(T and T("chips.maxLaptop") or 4))
+    return math.min(MAX_SLOTS, math.floor(T and T("chips.maxLaptop") or 3))
   end
   return MAX_SLOTS
 end
