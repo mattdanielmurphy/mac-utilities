@@ -20,7 +20,11 @@
 -- Stop (Esc twice, or the "Stop task" button) is a hard no: the holder's
 -- state turns "stopped", its agent (Claude session id) is blocked from asking
 -- again for BLOCK_SECS (every later ask returns "stopped" at once), and its
--- claude process gets SIGINT, which aborts the session's current turn.
+-- claude process gets SIGINT, which aborts the session's current turn. The
+-- SIGINT goes only to a granted holder (it's acting): a pending ask's wrapper
+-- already returns "stopped", and SIGINT to a Claude session between turns
+-- exits the whole process, which leaves a Remote Control thread deaf to new
+-- messages (2026-10-23).
 -- A holder auto-releases after MAX_HOLD seconds; a queued ask nobody has
 -- polled for QUEUE_IDLE seconds is dropped (its agent died).
 -- Two tiers (Matt, 2026-10-21: full glow only when he must keep hands off):
@@ -48,6 +52,11 @@ require("hs.eventtap")
 
 local MAX_HOLD = 60
 local QUEUE_IDLE = 15
+-- An agent's ask whose wrapper stopped polling this long is an orphan: the wrapper
+-- gave up ("hammerspoon unreachable" when hs -c was slow under memory pressure)
+-- but the ask still landed. It's dropped, never shown or granted, so Matt can't
+-- Stop an agent that isn't waiting (2026-10-23: that SIGINT killed an idle thread).
+local ORPHAN_SECS = 8
 local BLOCK_SECS = 2 * 3600
 local STOP_WINDOW = 3    -- seconds after Esc in which a second Esc means Stop
 
@@ -62,6 +71,13 @@ local tickets = {}       -- id -> { reason, seconds, urgent, state, seen }
 local queue = {}         -- ids waiting their turn, in order
 local active = nil       -- id holding the banner
 local nextId = 0
+local byKey = {}         -- wrapper request key -> id, so a retried ask isn't a second ticket
+
+-- An agent ticket nobody is polling (see ORPHAN_SECS). Demo/lock tickets have no poller.
+local function isOrphan(t)
+  return t and t.agent and t.agent ~= "" and not t.quiet
+    and hs.timer.secondsSinceEpoch() - (t.seen or 0) > ORPHAN_SECS
+end
 
 -- agent key -> unblock time (epoch secs); kept in hs.settings so a
 -- Hammerspoon reload doesn't let a stopped agent back in.
@@ -185,6 +201,7 @@ local function stopTicket(id)
   local t = id and tickets[id]
   if not t then return end
   if id == active then hideBanner(); active = nil; state = "idle" end
+  local wasGranted = t.state == "granted"
   t.state = "stopped"
   if t.agent and t.agent ~= "" then
     blocked[t.agent] = hs.timer.secondsSinceEpoch() + BLOCK_SECS
@@ -192,7 +209,7 @@ local function stopTicket(id)
   end
   -- Give a polling wrapper a moment to read "stopped" before the signal.
   local pid = t.pid
-  hs.timer.doAfter(0.6, function() interruptAgent(pid) end)
+  if wasGranted then hs.timer.doAfter(0.6, function() interruptAgent(pid) end) end
   hs.alert.show("Claude's task stopped. It can't ask for control again.", 2)
   advance()
 end
@@ -434,7 +451,17 @@ local function begin(reason, seconds, light)
   local held = 0
   activeWatchers.claudeControlTimer = hs.timer.doEvery(1, function()
     if state == "pending" then
-      remaining = remaining - 1
+      local t = tickets[active]
+      if isOrphan(t) then
+        print("claude_control: dropped orphaned ask from " .. tostring(t.agent) .. ": " .. tostring(t.reason))
+        t.state = "dropped"
+        M.done(active)
+        return
+      end
+      -- An agent's ask is granted only once its wrapper has polled: a wrapper that
+      -- gave up never polls, so its ticket waits here and is dropped as an orphan.
+      local waiting = t and t.agent and t.agent ~= "" and not t.quiet and not t.polled
+      if remaining > 1 or not waiting then remaining = remaining - 1 end
       if remaining <= 0 then setState("granted") end
       render()
     elseif state == "granted" then
@@ -479,13 +506,18 @@ advance = function()
   end)
 end
 
-function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link)
+function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key)
+  if key and byKey[key] and tickets[byKey[key]] then
+    tickets[byKey[key]].seen = hs.timer.secondsSinceEpoch()
+    return byKey[key]
+  end
   nextId = nextId + 1
   local id = "t" .. nextId
   tickets[id] = { reason = reason or "Running a quick test", seconds = seconds, urgent = urgent and true or false,
                   quiet = quiet and true or false, state = "queued", seen = hs.timer.secondsSinceEpoch(),
                   agent = agent, pid = pid, light = light and true or false,
                   link = require("modules.claude_links").resolve(link) }
+  if key then byKey[key] = id end
   if not quiet and isBlocked(agent) then
     tickets[id].state = "stopped"
     print("claude_control: refused ask from stopped agent " .. tostring(agent) .. ": " .. tostring(reason))
@@ -538,6 +570,7 @@ function M.state(id)
   local t = id and tickets[id]
   if not t then return "idle" end
   t.seen = hs.timer.secondsSinceEpoch()
+  t.polled = true
   if t.state == "queued" then
     for i, q in ipairs(queue) do if q == id then return "queued:" .. i end end
   end
@@ -598,7 +631,23 @@ activeWatchers.claudeControlReaper = hs.timer.doEvery(5, function()
   for id, t in pairs(tickets) do
     if id ~= active and t.state ~= "queued" and now - t.seen > 300 then tickets[id] = nil end
   end
+  for k, id in pairs(byKey) do
+    if not tickets[id] then byKey[k] = nil end
+  end
 end)
+
+-- The wrapper gave up on an ask: drop whatever ticket it may have made.
+function M.forget(key)
+  local id = key and byKey[key]
+  if not id or not tickets[id] then return "none" end
+  local t = tickets[id]
+  if id == active then M.done(id)
+  elseif t.state == "queued" or t.state == "snoozed" then
+    for i, q in ipairs(queue) do if q == id then table.remove(queue, i) break end end
+  end
+  t.state = "dropped"
+  return "dropped"
+end
 
 -- What the banner's Stop does, for the holder (or a given ticket).
 function M.stopTicket(id) stopTicket(id or active) end

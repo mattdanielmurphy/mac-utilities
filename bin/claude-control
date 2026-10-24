@@ -59,12 +59,17 @@ case "$1" in
     [[ $cmd == lock ]] && { quiet=true; light=false; secs=0; }
     [[ $secs == <-> ]] || secs=3
     reason=${reason//\\/\\\\}; reason=${reason//\"/\\\"}; reason=${reason//$'\n'/ }
+    # One key for all tries: under memory pressure `hs -c` can time out after
+    # Hammerspoon already made the ticket, so a retry must not make a second one,
+    # and giving up must drop it (an orphaned banner Matt then Stops kills the
+    # idle agent; 2026-10-23).
+    key="k$$.$RANDOM$RANDOM"
     for try in 1 2 3; do
-      id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\")")
+      id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\", \"$key\")")
       [[ $id == t<-> ]] && break
       sleep 1
     done
-    [[ $id == t<-> ]] || { echo "hammerspoon unreachable"; exit 1; }
+    [[ $id == t<-> ]] || { hsc "return claudeControl.forget(\"$key\")" >/dev/null; echo "hammerspoon unreachable"; exit 1; }
     deadline=$(( SECONDS + QUEUE_WAIT + secs + 10 ))
     while (( SECONDS < deadline )); do
       s=$(hsc "return claudeControl.state(\"$id\")")
