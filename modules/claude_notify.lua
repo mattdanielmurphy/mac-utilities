@@ -38,6 +38,14 @@ local MAX_SLOTS = 6
 local SLOT_H, CHIP_H = 92, 80
 local MIN_W, MAX_W = 340, 620
 local layout = require("modules.hud_layout")
+local T = hs and require("modules.tweaks").open{
+  app = "Claude notification chips",
+  file = require("modules.tweaks").dir .. "/claude_notify.json",
+  knobs = {
+    ["chips.maxLaptop"] = { 4, min = 1, max = 6, step = 1,
+      note = "Most chips stacked at once when only the laptop screen is connected (hud_slots.json reserves room for 4); extras wait in the queue" },
+  },
+}
 local VERSION = "8"
 local SNOOZE_SECONDS = 600
 local DEFAULT_SOUND = "Tink"
@@ -71,8 +79,17 @@ local function palette(kind)
            text = { hex = t.text } }
 end
 
+-- Laptop-only (no TV/second screen): cap the stack so chips never reach the mixer / piano card.
+local function slotLimit()
+  if #hs.screen.allScreens() <= 1 then
+    return math.min(MAX_SLOTS, math.floor(T and T("chips.maxLaptop") or 4))
+  end
+  return MAX_SLOTS
+end
+M.slotLimit = slotLimit
+
 local function freeSlot()
-  for i = 1, MAX_SLOTS do
+  for i = 1, slotLimit() do
     if not slots[i] then return i end
   end
 end
