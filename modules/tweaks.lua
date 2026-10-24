@@ -23,8 +23,11 @@
 -- Every tweaks file is listed in ~/.hammerspoon/tweaks_registry.json for the panel.
 --
 -- The panel colours knobs that differ from their default, and can:
---   Save as defaults: rewrites the knob declarations in the app's code (Lua or Swift) and
---     commits that file, so the official build ships the new values (M.saveDefaults).
+--   Apply: rewrites the knob declarations in the app's code (Lua or Swift), commits and
+--     pushes that file (M.saveDefaults), then runs the app's build command, if it has one in
+--     ~/.hammerspoon/tweaks_apps.json, so the new values are how the app ships from now on.
+--   Follow focus: the panel shows the focused app's tweaks (tweaks_apps.json "focus" bundle
+--     IDs, or a matching app name) until Matt pins another app (M.appsForFocus).
 --   Presets: named value sets in ~/Library/Application Support/MDMA/tweak-presets/<app>.json,
 --     outside every repo so switching never dirties git (M.savePreset / loadPreset).
 
@@ -246,7 +249,7 @@ end
 
 -- Makes every changed knob's current value its default, in code and in the file.
 -- Returns a short message for the panel.
-function M.saveDefaults(file)
+function M.saveDefaults(file, willBuild)
   local doc = M.readDoc(file)
   if not doc or not doc.tweaks then return "Couldn't read the tweaks file." end
   local keys = {}
@@ -281,8 +284,35 @@ function M.saveDefaults(file)
   else
     msg = msg .. " Not committed: that file had other edits."
   end
-  if path:match("%.swift$") then msg = msg .. " Rebuild the app to ship it (until then it still shows as changed)." end
+  if path:match("%.swift$") and not willBuild then msg = msg .. " Rebuild the app to ship it (until then it still shows as changed)." end
   return msg
+end
+
+-- ── Focus follow ──────────────────────────────────────────────────────────────
+-- Which registered apps to show for the focused app: those whose tweaks_apps.json entry lists
+-- its bundle ID, plus one whose panel name is the app's own name. Sorted, may be empty.
+function M.appsForFocus(meta, names, bundleID, appName)
+  local out, seen = {}, {}
+  local lname = appName and appName:lower()
+  for _, name in ipairs(names) do
+    local entry = meta and meta[name]
+    local hit = lname and name:lower() == lname
+    if not hit and type(entry) == "table" and type(entry.focus) == "table" then
+      for _, id in ipairs(entry.focus) do
+        if id == bundleID then hit = true break end
+      end
+    end
+    if hit and not seen[name] then seen[name] = true out[#out + 1] = name end
+  end
+  table.sort(out, function(a, b) return a:lower() < b:lower() end)
+  return out
+end
+
+-- The git repo root a tweaks file lives in, or nil.
+function M.repoRoot(file)
+  local dir = file:match("^(.*)/[^/]+$")
+  local root = (sh("git -c core.fsmonitor=false -C " .. q(dir) .. " rev-parse --show-toplevel")):gsub("%s+$", "")
+  return root ~= "" and root or nil
 end
 
 -- ── Presets ───────────────────────────────────────────────────────────────────
