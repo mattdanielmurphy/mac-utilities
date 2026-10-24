@@ -55,7 +55,16 @@ local function useModule(id, path, fn)
     return function()
         if ModuleManager.modules[id] and not enabled(id) then ModuleManager.setEnabled(id, true) end
         local ok, mod = pcall(require, path)
-        if ok and type(mod) == "table" then fn(mod) end
+        if not ok or type(mod) ~= "table" then
+            print("⚠️ menu: could not load " .. path .. ": " .. tostring(mod))
+            hs.alert.show("⚠️ " .. id .. " failed to load (see console)")
+            return
+        end
+        local ran, err = pcall(fn, mod)
+        if not ran then
+            print("⚠️ menu: " .. id .. " failed: " .. tostring(err))
+            hs.alert.show("⚠️ " .. id .. " failed (see console)")
+        end
     end
 end
 
