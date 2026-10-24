@@ -12,8 +12,8 @@ local T = require("modules.tweaks").open{
   app = "Reload indicator",
   file = require("modules.tweaks").dir .. "/reload_indicator.json",
   knobs = {
-    ["badge.size"]   = { 28, min = 16, max = 64, step = 1, note = "Box size (px)" },
-    ["badge.margin"] = { 14, min = 0, max = 60, step = 1, note = "Distance from the screen corner (px)" },
+    ["badge.size"]   = { 35, min = 16, max = 64, step = 1, note = "Box size (px)" },
+    ["badge.margin"] = { 26, min = 0, max = 60, step = 1, note = "Distance from the screen corner (px)" },
     ["badge.text"]   = { 20, min = 10, max = 48, step = 1, note = "Glyph size (pt)" },
     ["fade.hold"]    = { 1.2, min = 0, max = 5, step = 0.1, note = "Seconds fully visible" },
     ["fade.out"]     = { 0.8, min = 0, max = 3, step = 0.05, note = "Seconds to fade out" },

@@ -37,7 +37,7 @@ local HOME = os.getenv("HOME")
 M.dir = HOME .. "/.hammerspoon/tweaks"
 M.registry = HOME .. "/.hammerspoon/tweaks_registry.json"
 
-local FIELD_ORDER = { "value", "default", "min", "max", "step", "note" }
+local FIELD_ORDER = { "value", "default", "min", "max", "step", "note", "choices" }
 
 -- ── Pure functions (no hs.*), tested by tests/tweaks_test.lua ─────────────────
 
@@ -48,9 +48,16 @@ local function jsonString(s)
   end) .. '"'
 end
 
+local sortedKeys
+
 local function jsonLeaf(v)
   local t = type(v)
   if t == "string" then return jsonString(v) end
+  if t == "table" then -- a flat map, e.g. a chips knob's choices {value: label}
+    local parts = {}
+    for _, k in ipairs(sortedKeys(v)) do parts[#parts + 1] = jsonString(tostring(k)) .. ": " .. jsonLeaf(v[k]) end
+    return "{ " .. table.concat(parts, ", ") .. " }"
+  end
   if t == "boolean" then return tostring(v) end
   if t == "number" then
     if v ~= v or v == math.huge or v == -math.huge then return "0" end
@@ -59,7 +66,7 @@ local function jsonLeaf(v)
   return "null"
 end
 
-local function sortedKeys(t)
+function sortedKeys(t)
   local keys = {}
   for k in pairs(t) do keys[#keys + 1] = k end
   table.sort(keys)
@@ -260,7 +267,21 @@ function M.saveDefaults(file, willBuild)
   if #keys == 0 then return "Nothing to save: every knob is at its default." end
 
   local path, root = M.findSource(file, keys)
-  if not path then return "Not saved: " .. root .. "." end
+  if not path then
+    -- No code declares these knobs: the tweaks file is its own source (e.g. the explainer reels), so its
+    -- defaults are what ships. Commit just that file.
+    local tracked = select(2, sh("git -c core.fsmonitor=false -C " .. q(file:match("^(.*)/[^/]+$")) .. " ls-files --error-unmatch " .. q(file)))
+    local froot = M.repoRoot(file)
+    if not tracked or not froot then return "Not saved: " .. root .. "." end
+    for _, key in ipairs(keys) do doc.tweaks[key].default = doc.tweaks[key].value end
+    if not M.writeFile(file, M.encode(doc)) then return "Not saved: couldn't write the tweaks file." end
+    local rel = file:sub(#froot + 2)
+    local what = #keys == 1 and keys[1] or (#keys .. " knobs")
+    local subject = "Tweaks: new defaults for " .. (doc.app or "app") .. " (" .. table.concat(keys, ", ") .. ")"
+    hs.task.new("/bin/sh", nil, { "-c", "cd " .. q(froot) .. " && git -c core.fsmonitor=false add -- " .. q(rel)
+      .. " && git commit -q -m " .. q(subject) .. " -- " .. q(rel) .. " && git push -q" }):start()
+    return "Saved " .. what .. " as default in " .. rel .. ". Committed."
+  end
   local rel = path:sub(#root + 2)
   local wasClean = select(2, sh("git -c core.fsmonitor=false -C " .. q(root) .. " diff --quiet -- " .. q(rel)))
   local src = readFile(path)
