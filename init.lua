@@ -163,6 +163,7 @@ safeRegister("modules.quote_comment") -- ⌥R: quote into Claude's box + dictate
 safeRegister("modules.thread_queue") -- ⏳ pill on Claude while a project thread has a /q message queued
 safeRegister("modules.trackpad_mixer_summon") -- ⌃⌥⌘V: mixer on the built-in trackpad, one go
 safeRegister("modules.wifi_home") -- on the iPhone hotspot with home Wi-Fi in range → rejoin home
+safeRegister("modules.call_transcript") -- FaceTime call starts/ends → call-transcript start/stop
 safeRegister("modules.tv_resync") -- ⌃⌥R: TV stuck on "no signal" with the lid shut → re-sync it
 safeRegister("modules.tweaks_panel") -- ⌃⌥⌘T: sliders for every app's tweaks.json
 safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies

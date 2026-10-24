@@ -52,6 +52,7 @@ M.MATT_ONLY = {
   ["modules.hey_claude"] = "ai-os voice scripts",
   ["modules.trackpad_mixer_summon"] = "needs Matt's trackpad-mixer app",
   ["modules.wifi_home"] = "Matt's home and hotspot networks",
+  ["modules.call_transcript"] = "needs Matt's call-transcript tool and Audio Hijack setup",
   ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",
   ["modules.thread_queue"] = "reads ai-os thread queue files",
 }
