@@ -60,11 +60,15 @@ local function useModule(id, path, fn)
             hs.alert.show("⚠️ " .. id .. " failed to load (see console)")
             return
         end
-        local ran, err = pcall(fn, mod)
-        if not ran then
-            print("⚠️ menu: " .. id .. " failed: " .. tostring(err))
-            hs.alert.show("⚠️ " .. id .. " failed (see console)")
-        end
+        -- Run after the menu has finished closing: opening a window (chooser,
+        -- webview) from inside the menu's own callback can fault.
+        hs.timer.doAfter(0.15, function()
+            local ran, err = pcall(fn, mod)
+            if not ran then
+                print("⚠️ menu: " .. id .. " failed: " .. tostring(err))
+                hs.alert.show("⚠️ " .. id .. " failed (see console)")
+            end
+        end)
     end
 end
 
