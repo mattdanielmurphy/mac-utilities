@@ -2,6 +2,9 @@
 -- Mutes macOS audio output device ONLY when the machine has been asleep or locked
 -- for more than 10 minutes, preventing accidental audio playback in classrooms
 -- while avoiding annoying muting during short breaks or routine laptop use.
+-- Skipped at home (Matt, 2026-10-25): home = home Wi-Fi, or the hotspot with home in
+-- range (modules/wifi_home.lua). Wi-Fi is often still joining right after wake, so an
+-- unknown network is re-checked for a few seconds; still unknown → mute (the safe side).
 
 local M = {
   id = "wake_mute",
@@ -38,6 +41,24 @@ local function muteAudio(reason)
   end
 end
 
+-- Mute unless at home. Retries while the network is unknown (nil SSID).
+local SSID_RETRIES, SSID_RETRY_SECONDS = 6, 2
+local function muteUnlessHome(reason, tries)
+  tries = tries or 0
+  require("modules.wifi_home").atHome(function(atHome, ssid)
+    if atHome then
+      print("wake_mute: at home (" .. tostring(ssid) .. "), not muting")
+    elseif ssid == nil and tries < SSID_RETRIES then
+      activeWatchers.wakeMuteRetry = hs.timer.doAfter(SSID_RETRY_SECONDS, function()
+        muteUnlessHome(reason, tries + 1)
+      end)
+    else
+      muteAudio(reason)
+    end
+  end)
+end
+M.muteUnlessHome = muteUnlessHome
+
 function M.start()
   M.stop()
 
@@ -61,7 +82,7 @@ function M.start()
 
         if elapsed >= MUTE_THRESHOLD_SECONDS then
           local mins = math.floor(elapsed / 60)
-          muteAudio(string.format("Asleep/Locked for %dm", mins))
+          muteUnlessHome(string.format("Asleep/Locked for %dm", mins))
           sleepOrLockTime = nil
         elseif eventType == hs.caffeinate.watcher.screensDidUnlock
             or eventType == hs.caffeinate.watcher.sessionDidBecomeActive
@@ -77,6 +98,10 @@ function M.start()
 end
 
 function M.stop()
+  if activeWatchers.wakeMuteRetry then
+    activeWatchers.wakeMuteRetry:stop()
+    activeWatchers.wakeMuteRetry = nil
+  end
   if activeWatchers.wakeMuteWatcher then
     activeWatchers.wakeMuteWatcher:stop()
     activeWatchers.wakeMuteWatcher = nil
