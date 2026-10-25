@@ -1,8 +1,8 @@
 -- ~/.hammerspoon/modules/eye_breaks.lua
 -- Eye-strain and long-session break reminders.
 --
---   • 20-20-20: every 20 min of active use, a small top-right alert asks you to
---     look ~20 ft away for 20 s.
+--   • 20-20-20: every 20 min of active use, the screen fades to black and white
+--     with a prompt in the centre to look ~20 ft away for 20 s.
 --   • Hard break: after 3 h of continuous use, a notification + centered alert
 --     asks for a real break, repeating every 30 min.
 --   • Escalation: after 6 h, a full-screen dim overlay (click or Escape to
@@ -51,16 +51,6 @@ local function fmtDuration(secs)
 end
 
 -- ── UI ─────────────────────────────────────────────────────────────────────────
-local eyeStyle = {
-  strokeColor = { white = 0, alpha = 0 },
-  fillColor = { red = 0.08, green = 0.22, blue = 0.20, alpha = 0.92 },
-  textColor = { white = 1, alpha = 0.95 },
-  radius = 8,
-  textSize = 15,
-  atScreenEdge = 2,
-  padding = 12
-}
-
 local hardStyle = {
   strokeColor = { red = 0.85, green = 0.55, blue = 0.25, alpha = 0.9 },
   strokeWidth = 2,
@@ -71,8 +61,73 @@ local hardStyle = {
   padding = 20
 }
 
+-- Eye reminder: the whole screen fades to a neutral black-and-white wash with the prompt
+-- in the centre and a countdown. Colours are the Apothecary neutrals from the candidate
+-- palette (ai-os design/candidates/directions.json), light or dark to match the system.
+-- Feel knobs: ~/.hammerspoon/tweaks/eye_breaks.json, or the Tweaks panel (⌃⌥⌘T).
+local T = require("modules.tweaks").open{
+  app = "Eye breaks",
+  file = require("modules.tweaks").dir .. "/eye_breaks.json",
+  knobs = {
+    ["wash.fadeIn"]    = { 1.5, min = 0, max = 5, step = 0.1, note = "Seconds to fade to black and white" },
+    ["wash.fadeOut"]   = { 0.8, min = 0, max = 3, step = 0.1, note = "Seconds to fade back" },
+    ["wash.lightAlpha"] = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in light mode" },
+    ["wash.darkAlpha"]  = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in dark mode" },
+    ["text.size"]      = { 40, min = 18, max = 80, step = 1, note = "Prompt size (pt)" },
+  },
+}
+
+local PALETTE = {
+  light = { bg = "#f8f8f7", text = "#35322b" },
+  dark  = { bg = "#1a1916", text = "#d7d5d1" },
+}
+
+local function hex(h, alpha)
+  local r, g, b = h:match("#(%x%x)(%x%x)(%x%x)")
+  return { red = tonumber(r, 16) / 255, green = tonumber(g, 16) / 255, blue = tonumber(b, 16) / 255, alpha = alpha or 1 }
+end
+
+function M.dismissEyeWash(instant)
+  if activeWatchers.eyeWashTimer then activeWatchers.eyeWashTimer:stop(); activeWatchers.eyeWashTimer = nil end
+  if activeWatchers.eyeWashKey then activeWatchers.eyeWashKey:delete(); activeWatchers.eyeWashKey = nil end
+  local cs = activeWatchers.eyeWashCanvases
+  activeWatchers.eyeWashCanvases = nil
+  if not cs then return end
+  for _, c in ipairs(cs) do
+    if instant then c:delete() else c:hide(T("wash.fadeOut")); hs.timer.doAfter(T("wash.fadeOut") + 0.2, function() c:delete() end) end
+  end
+end
+
 function M.showEyeReminder()
-  hs.alert.show("👀  20-20-20: look ~20 ft away for 20 seconds", eyeStyle, hs.screen.mainScreen(), CFG.EYE_SHOW)
+  M.dismissEyeWash(true)
+  local dark = hs.host.interfaceStyle() == "Dark"
+  local pal = dark and PALETTE.dark or PALETTE.light
+  local alpha = dark and T("wash.darkAlpha") or T("wash.lightAlpha")
+  local canvases = {}
+  for _, screen in ipairs(hs.screen.allScreens()) do
+    local c = hs.canvas.new(screen:fullFrame())
+    c:level(hs.canvas.windowLevels.screenSaver)
+    c:behavior({ "canJoinAllSpaces", "stationary" })
+    c[1] = { type = "rectangle", action = "fill", fillColor = hex(pal.bg, alpha) }
+    c[2] = { type = "text", text = "Look 20 feet away", textSize = T("text.size"), textColor = hex(pal.text),
+             textAlignment = "center", frame = { x = "10%", y = "40%", w = "80%", h = "10%" } }
+    c[3] = { type = "text", text = tostring(CFG.EYE_SHOW) .. " s", textSize = 22, textColor = hex(pal.text, 0.7),
+             textAlignment = "center", frame = { x = "10%", y = "52%", w = "80%", h = "6%" } }
+    c[4] = { type = "text", text = "Click or press Escape to skip", textSize = 14, textColor = hex(pal.text, 0.5),
+             textAlignment = "center", frame = { x = "10%", y = "90%", w = "80%", h = "4%" } }
+    c:mouseCallback(function() M.dismissEyeWash() end)
+    c:canvasMouseEvents(true, false, false, false)
+    c:show(T("wash.fadeIn"))
+    table.insert(canvases, c)
+  end
+  activeWatchers.eyeWashCanvases = canvases
+  activeWatchers.eyeWashKey = hs.hotkey.bind({}, "escape", function() M.dismissEyeWash() end)
+  local left = CFG.EYE_SHOW
+  activeWatchers.eyeWashTimer = hs.timer.doEvery(1, function()
+    left = left - 1
+    if left <= 0 then M.dismissEyeWash(); return end
+    for _, c in ipairs(canvases) do c[3].text = tostring(left) .. " s" end
+  end)
 end
 
 function M.showHardNudge(activeSecs)
