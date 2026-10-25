@@ -4,7 +4,8 @@
 --   • Messages: watches ~/Library/Messages (chat.db) and reads new incoming rows
 --     with /usr/bin/sqlite3 (async, read-only). Newer macOS keeps the text only in
 --     attributedBody, so that blob is decoded too.
---   • Mail: watches ~/Library/Mail for new .emlx files and reads subject + body.
+--   • Mail: watches ~/Library/Mail for new .emlx / .partial.emlx files and reads
+--     subject + body.
 --   • Both need Full Disk Access for Hammerspoon (System Settings > Privacy &
 --     Security > Full Disk Access). Without it the module alerts once and idles.
 --   • The code is copied as "concealed" (org.nspasteboard.ConcealedType), so
@@ -12,7 +13,9 @@
 --     and it's wiped from the clipboard after CLEAR_AFTER seconds (the previous
 --     clipboard text comes back) unless you've copied something else since.
 --   • Google's "G-123456" codes copy as "123456" (Google's own field rejects G-).
---   • A small pill in the "otp_code" HUD slot shows the code; click to dismiss.
+--   • A small pill shows the code just below the focused text field (middle of the
+--     screen if the field can't be read). It goes away once the code is pasted
+--     (⌘V, or the field now holds the code), when clicked, or after pill.seconds.
 --
 -- Pure parts (extract, decodeAttributedBody, parseEmlx) need no hs.*:
 --   lua tests/otp_copy_test.lua
@@ -34,7 +37,6 @@ local CFG = {
   maxAge = 600,        -- ignore messages/emails older than this (s): history syncs, backfills
   dedupe = 120,        -- same code again within this window (s) is ignored (SMS + email copies)
   clearAfter = 120,    -- wipe the code from the clipboard after this many seconds
-  pillSeconds = 12,    -- pill fades after this long
   maxDistance = 100,   -- code must sit within this many bytes of a keyword
   emlxMaxBytes = 400000,
 }
@@ -257,11 +259,77 @@ end
 
 -- ── Clipboard + pill (hs) ────────────────────────────────────────────────────
 
+-- Where the pill goes (pure): just below the field, above it if there's no room
+-- below, kept on screen; no field → the middle of the screen. Frames are
+-- {x, y, w, h} in Hammerspoon's top-left-origin coordinates.
+function M.placePill(field, screen, w, h, gap)
+  if not field then
+    return { x = screen.x + (screen.w - w) / 2, y = screen.y + (screen.h - h) / 2, w = w, h = h }
+  end
+  local y = field.y + field.h + gap
+  if y + h > screen.y + screen.h then y = field.y - gap - h end
+  y = math.max(screen.y, math.min(y, screen.y + screen.h - h))
+  local x = math.max(screen.x, math.min(field.x, screen.x + screen.w - w))
+  return { x = x, y = y, w = w, h = h }
+end
+
+-- Roles that take typed text; anything else (a whole web page, a window) means
+-- we don't know where the field is.
+local TEXT_ROLES = { AXTextField = true, AXTextArea = true, AXComboBox = true, AXSearchField = true }
+
 local recent = {}       -- code → epoch last copied
-local clearTimer, pill, pillTimer
+local clearTimer, pill, pillTimer, pasteTap, pastePoll
 local savedPrevious, copiedStamp  -- clipboard before the first pending code, and our write's changeCount
 
+-- Feel knobs: ~/.hammerspoon/tweaks/otp_copy.json, or the Tweaks panel (⌃⌥⌘T).
+-- Opened on first use so the pure tests can load this file without hs.*.
+local tweaksHandle
+local function T(key)
+  tweaksHandle = tweaksHandle or require("modules.tweaks").open{
+    app = "2FA Code Auto-Copy",
+    file = require("modules.tweaks").dir .. "/otp_copy.json",
+    knobs = {
+      ["pill.seconds"] = { 12, min = 3, max = 60, step = 1, note = "Seconds the code pill stays up" },
+      ["pill.gap"] = { 8, min = 0, max = 40, step = 1, note = "Gap between the text field and the pill (px)" },
+      ["paste.delay"] = { 0.3, min = 0, max = 2, step = 0.05, note = "Seconds after ⌘V before the pill fades" },
+    },
+  }
+  return tweaksHandle(key)
+end
+
+local function focusedElement()
+  local ok, el = pcall(function()
+    local sys = hs.axuielement.systemWideElement()
+    if sys.setTimeout then sys:setTimeout(0.3) end
+    return sys:attributeValue("AXFocusedUIElement")
+  end)
+  return ok and el or nil
+end
+
+-- Frame of the focused text field, or nil if it can't be read.
+local function focusedFieldFrame()
+  local el = focusedElement()
+  if not el then return nil end
+  local ok, frame = pcall(function()
+    if not TEXT_ROLES[el:attributeValue("AXRole") or ""] then return nil end
+    local f = el:attributeValue("AXFrame")
+    if not f then
+      local p, s = el:attributeValue("AXPosition"), el:attributeValue("AXSize")
+      if p and s then f = { x = p.x, y = p.y, w = s.w, h = s.h } end
+    end
+    return f
+  end)
+  if not ok or not frame or not frame.w or frame.w <= 0 or frame.h <= 0 then return nil end
+  return frame
+end
+
+local function stopPasteWatch()
+  if pasteTap then pasteTap:stop(); pasteTap = nil end
+  if pastePoll then pastePoll:stop(); pastePoll = nil end
+end
+
 local function hidePill()
+  stopPasteWatch()
   if pillTimer then pillTimer:stop(); pillTimer = nil end
   if pill then
     local c = pill
@@ -275,7 +343,11 @@ local function showPill(code, source)
   hidePill()
   local dark = hs.host.interfaceStyle() == "Dark"
   local w, h = 230, 52
-  local rect = require("modules.hud_layout").rect("otp_code", w, h)
+  local field = focusedFieldFrame()
+  local screen = (field and hs.screen.find(hs.geometry.rect(field.x, field.y, field.w, field.h)))
+    or (hs.window.focusedWindow() and hs.window.focusedWindow():screen()) or hs.screen.mainScreen()
+  local sf = screen:fullFrame()
+  local rect = M.placePill(field, { x = sf.x, y = sf.y, w = sf.w, h = sf.h }, w, h, T("pill.gap"))
   local c = hs.canvas.new(rect)
   c:level(hs.canvas.windowLevels.overlay)
   c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
@@ -289,14 +361,38 @@ local function showPill(code, source)
     { type = "text", text = code, frame = { x = 14, y = 6, w = w - 28, h = 24 },
       textSize = 19, textFont = "Menlo-Bold",
       textColor = dark and { hex = "#BFE6C8" } or { hex = "#1E4D2B" } },
-    { type = "text", text = "Copied from " .. source .. "  ·  click to dismiss",
+    { type = "text", text = "Copied from " .. source .. "  ·  ⌘V to paste",
       frame = { x = 14, y = 31, w = w - 28, h = 16 }, textSize = 10.5,
       textColor = dark and { hex = "#9CC9A7", alpha = 0.9 } or { hex = "#3F6B4B", alpha = 0.9 } }
   )
   c:mouseCallback(function() hidePill() end)
   c:show(0.15)
   pill = c
-  pillTimer = hs.timer.doAfter(CFG.pillSeconds, hidePill)
+  pillTimer = hs.timer.doAfter(T("pill.seconds"), hidePill)
+
+  -- Gone once the code is pasted: ⌘V while the clipboard still holds it, or the
+  -- focused field's text now contains it (menu Paste, autofill, typed by hand).
+  local function hideThis() if pill == c then hidePill() end end
+  local V = hs.keycodes.map.v
+  pasteTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
+    local f = e:getFlags()
+    if e:getKeyCode() == V and f.cmd and not (f.alt or f.ctrl or f.shift)
+        and hs.pasteboard.changeCount() == copiedStamp then
+      hs.timer.doAfter(T("paste.delay"), hideThis)
+    end
+    return false
+  end):start()
+  pastePoll = hs.timer.doEvery(0.5, function()
+    local el = focusedElement()
+    local ok, value = pcall(function() return el and el:attributeValue("AXValue") end)
+    if ok and type(value) == "string" and value:find(code, 1, true) then hideThis() end
+  end)
+end
+
+-- For checks from `hs -c`: where the pill is, and whether the paste watch runs.
+function M.pillState()
+  if not pill then return nil end
+  return { frame = pill:frame(), tap = pasteTap ~= nil and pasteTap:isEnabled(), poll = pastePoll ~= nil }
 end
 
 local function writeConcealed(code)
@@ -426,7 +522,9 @@ end
 local function startMail()
   activeWatchers.otpCopyMailWatcher = hs.pathwatcher.new(MAIL_DIR, function(paths)
     for _, p in ipairs(paths) do
-      if p:find("%.emlx$") and not p:find("%.partial%.emlx$") then
+      -- .partial.emlx = headers + text parts, with images/attachments stored apart
+      -- (most HTML mail, e.g. Kijiji); it holds the code just the same.
+      if p:find("%.emlx$") then
         -- let Mail finish writing before reading
         hs.timer.doAfter(0.5, function() checkEmlx(p) end)
       end
@@ -444,6 +542,7 @@ end
 
 function M.start()
   M.stop()
+  T("pill.seconds") -- seeds the tweaks file so the knobs show in the panel now
   if not hasFullDiskAccess() then
     print("⚠️ otp_copy: Hammerspoon has no Full Disk Access, so it can't read Messages or Mail")
     hs.alert.show("2FA Code Auto-Copy needs Full Disk Access for Hammerspoon\n" ..
