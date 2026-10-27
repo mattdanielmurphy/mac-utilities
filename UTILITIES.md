@@ -48,7 +48,7 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 **Piano Chord HUD.** While a MIDI keyboard is plugged in, a small overlay shows the chord you're playing. Click it for the chord's intervals, keys and modes. It also logs every note to `~/Documents/Piano Log/`.
 
 ### modules.song_key
-**Song Key HUD.** While music plays, a small pill shows the song's key, looked up on Hooktheory. It listens first and stays away for speech (podcasts, narrated videos, reels). Click it, or press Esc in its first few seconds, to hide it until the next song; it also fades by itself after a while. The ↗ corner opens the Hooktheory page. Needs `brew install nowplaying-cli`.
+**Song Key HUD.** While music plays, a small pill shows the song's key, looked up on Hooktheory. It listens first and stays away for speech (podcasts, narrated videos, reels). Move the mouse over it and click the big Close button to hide it until the next song; it also fades by itself after a while. The ↗ corner opens the Hooktheory page. Needs `brew install nowplaying-cli`.
 
 ### modules.otp_copy
 **2FA Code Auto-Copy.** When a verification code arrives by text (Messages) or email (Mail), it goes straight to your clipboard and a small pill shows it in the bottom-left corner. Google's "G-123456" codes copy as just the digits. Clipboard managers that respect hidden items won't save the code, and it's wiped from the clipboard after 2 minutes. Needs Full Disk Access for Hammerspoon (System Settings › Privacy & Security › Full Disk Access). Replaces apps like MessAuto or 2FHey; switch those off so codes don't get copied twice.

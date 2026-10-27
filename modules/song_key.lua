@@ -13,8 +13,9 @@
 --     between words, music doesn't), so a spoken reel, podcast or video never brings the
 --     pill up. Apple Music and Spotify tracks found online show at once; anything else
 --     waits until the ear hears music, and speech hides the pill again.
---   • Easy to dismiss: click it, press Esc in the first few seconds, or let it fade by
---     itself. A dismissed pill stays away until the next song. The ↗ corner opens Hooktheory.
+--   • Easy to dismiss, like Trackpad Mixer: moving the mouse over it dims it and shows a
+--     big Close button (acts on release). It also fades by itself after a while; hovering
+--     holds the fade. A closed pill stays away until the next song. The ↗ corner opens Hooktheory.
 --   Feel knobs: ~/.hammerspoon/tweaks/song_key.json, or the Tweaks panel (⌃⌥⌘T).
 
 local M = {
@@ -46,7 +47,6 @@ local T = hs and require("modules.tweaks").open{
   knobs = {
     ["ear.speechLer"]    = { 0.3, min = 0.15, max = 0.6, step = 0.01, note = "Pause share at or above which the sound counts as speech" },
     ["dismiss.autoHide"] = { 25, min = 0, max = 120, step = 1, note = "Seconds the pill stays up before fading by itself (0 = never)" },
-    ["dismiss.escSeconds"] = { 8, min = 0, max = 30, step = 1, note = "Seconds after it appears that Esc hides it" },
   },
 }
 
@@ -85,14 +85,17 @@ local HTML = [==[
   .low .key, .low #kb { opacity: 0.7; }
   .ear { position: absolute; left: 16px; top: 120px; right: 16px; font-size: 11px;
     color: rgba(244, 241, 234, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .btn { position: absolute; top: 5px; width: 20px; height: 20px; border-radius: 10px;
-    font-size: 12px; line-height: 20px; text-align: center; cursor: pointer;
-    color: rgba(244, 241, 234, 0.6); }
+  .btn { position: absolute; top: 5px; right: 6px; width: 20px; height: 20px; border-radius: 10px;
+    font-size: 12px; line-height: 20px; text-align: center; cursor: pointer; z-index: 2;
+    color: rgba(244, 241, 234, 0.6); display: none; }
   .btn:hover { background: rgba(244, 241, 234, 0.15); color: #f4f1ea; }
-  #close { right: 6px; }  #open { right: 28px; display: none; }
-  .esc { position: absolute; right: 10px; top: 120px; font-size: 9px; letter-spacing: 0.06em;
-    color: rgba(244, 241, 234, 0.6); border: 1px solid rgba(244, 241, 234, 0.3);
-    border-radius: 4px; padding: 0 4px; display: none; }
+  /* Hover: dim the pill and show one big Close button, as in Trackpad Mixer. */
+  .shade { position: absolute; inset: 0; border-radius: 14px; background: rgba(20, 24, 28, 0.6);
+    display: none; z-index: 1; }
+  .hover .shade { display: block; }
+  #close { position: absolute; left: 20%; right: 20%; top: 50%; height: 44px; margin-top: -22px;
+    border-radius: 12px; background: #f4f1ea; color: #1c2024; font-size: 16px; font-weight: 600;
+    line-height: 44px; text-align: center; cursor: pointer; }
   #kb { position: absolute; left: 16px; right: 16px; top: 76px; height: 38px; }
   #kb .w { fill: #f4f1ea; stroke: rgba(20, 24, 28, 0.6); stroke-width: 1; }
   #kb .b { fill: #1c2024; }
@@ -105,9 +108,8 @@ local HTML = [==[
   <div class="sub" id="sub">&nbsp;</div>
   <svg id="kb" viewBox="0 0 208 38" preserveAspectRatio="none"></svg>
   <div class="ear" id="ear">&nbsp;</div>
+  <div class="shade"><div id="close" title="Hide until the next song">Close</div></div>
   <div class="btn" id="open" title="Open on Hooktheory">↗</div>
-  <div class="btn" id="close" title="Hide until the next song (click anywhere, or Esc)">✕</div>
-  <div class="esc" id="esc">ESC HIDES</div>
 </div><script>
   // Scale steps from the tonic, by the mode word in the key name.
   var MODES = { major: [0,2,4,5,7,9,11], ionian: [0,2,4,5,7,9,11], dorian: [0,2,3,5,7,9,10],
@@ -138,18 +140,28 @@ local HTML = [==[
     }
     document.getElementById('kb').innerHTML = svg;
   }
-  // Click anywhere hides it; the ↗ corner opens Hooktheory instead.
-  document.getElementById('pill').addEventListener('mousedown', function (e) {
-    var type = e.target.id === 'open' ? 'open' : 'dismiss';
-    try { webkit.messageHandlers.songKey.postMessage({ type: type }); } catch (err) {}
+  function post(type) { try { webkit.messageHandlers.songKey.postMessage({ type: type }); } catch (err) {} }
+  // The pill can appear under a resting cursor; only real mouse movement shows Close.
+  var pill = document.getElementById('pill'), hovering = false;
+  function setHover(on) {
+    if (on === hovering) return;
+    hovering = on;
+    pill.classList.toggle('hover', on);
+    post(on ? 'hover' : 'unhover');
+  }
+  pill.addEventListener('mousemove', function () { setHover(true); });
+  pill.addEventListener('mouseleave', function () { setHover(false); });
+  // Close acts on release; the ↗ corner opens Hooktheory.
+  pill.addEventListener('mouseup', function (e) {
+    if (e.target.id === 'close') post('dismiss');
+    else if (e.target.id === 'open') post('open');
   });
-  function escHint(on) { document.getElementById('esc').style.display = on ? 'block' : 'none'; }
   function update(d) {
     document.getElementById('label').textContent = d.label || 'SONG KEY';
     document.getElementById('key').textContent = d.key || '…';
     document.getElementById('sub').textContent = d.sub || ' ';
     document.getElementById('ear').textContent = d.ear || ' ';
-    document.getElementById('pill').className = 'pill' + (d.low ? ' low' : '');
+    document.getElementById('pill').className = 'pill' + (d.low ? ' low' : '') + (hovering ? ' hover' : '');
     document.getElementById('open').style.display = d.url ? 'block' : 'none';
     drawKeys(d.kb || d.key, d.altTonic);
   }
@@ -177,6 +189,10 @@ local function onMessage(msg)
     hs.urlevent.openURL(state.result.url)
   elseif body.type == "dismiss" then
     dismiss()
+  elseif body.type == "hover" then
+    state.hovering = true
+  elseif body.type == "unhover" then
+    state.hovering = false
   end
 end
 
@@ -189,7 +205,6 @@ local function ensureView()
     if action == "didFinishNavigation" then
       state.ready = true
       if state.pending then draw(state.pending) end
-      if activeWatchers.songKeyEsc then activeWatchers.songKeyView:evaluateJavaScript("escHint(true)") end
     end
   end)
   wv:windowStyle({ "borderless", "nonactivating" })
@@ -204,15 +219,7 @@ local function ensureView()
 end
 
 local function clearDismissers()
-  for _, k in ipairs({ "songKeyEsc", "songKeyEscTimer", "songKeyAutoHide" }) do
-    local w = activeWatchers[k]
-    if w then
-      if w.delete then w:delete() else w:stop() end
-      activeWatchers[k] = nil
-    end
-  end
-  local wv = activeWatchers.songKeyView
-  if wv and state.ready then wv:evaluateJavaScript("escHint(false)") end
+  if activeWatchers.songKeyAutoHide then activeWatchers.songKeyAutoHide:stop(); activeWatchers.songKeyAutoHide = nil end
 end
 
 local function show()
@@ -222,23 +229,14 @@ local function show()
   wv:show(CFG.FADE)
   state.visible = true
   clearDismissers()
-  -- Esc only for the first few seconds, so it isn't taken from other apps while music plays.
-  local escFor = T and T("dismiss.escSeconds") or 8
-  if escFor > 0 then
-    activeWatchers.songKeyEsc = hs.hotkey.bind({}, "escape", function() dismiss() end)
-    if state.ready then wv:evaluateJavaScript("escHint(true)") end
-    activeWatchers.songKeyEscTimer = hs.timer.doAfter(escFor, function()
-      activeWatchers.songKeyEscTimer = nil
-      if activeWatchers.songKeyEsc then activeWatchers.songKeyEsc:delete(); activeWatchers.songKeyEsc = nil end
-      local v = activeWatchers.songKeyView
-      if v and state.ready then v:evaluateJavaScript("escHint(false)") end
-    end)
-  end
+  -- Fades by itself; while the mouse is over it, the fade waits until it leaves.
   local auto = T and T("dismiss.autoHide") or 25
   if auto > 0 then
     activeWatchers.songKeyAutoHide = hs.timer.doAfter(auto, function()
       activeWatchers.songKeyAutoHide = nil
-      dismiss()
+      if not state.hovering then return dismiss() end
+      activeWatchers.songKeyAutoHide = hs.timer.waitUntil(function() return not state.hovering end,
+        function() activeWatchers.songKeyAutoHide = nil; dismiss() end, 0.5)
     end)
   end
 end
