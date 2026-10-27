@@ -8,7 +8,7 @@
 #           volume, restart audio). Without it: full banner + glow, for typing,
 #           clicking or moving the mouse (Matt must keep hands off). exit 0 = granted (prints "granted <ticket>"),
 #       1 = cancelled (Esc: "not now"), preempted, timed out in the queue, or Hammerspoon unreachable.
-#       3 = STOPPED: Matt pressed Stop (Esc Esc). Stop the whole task, don't ask
+#       3 = STOPPED: Matt pressed Stop (held Esc ~2.5s, or the Stop button). Stop the whole task, don't ask
 #           again, and report. Later asks from this session return 3 at once.
 #       --urgent jumps the line and preempts a normal holder: ONLY to stop a runaway.
 #       --thread cmsg_…: your project thread (project is read from the id; --project chan_… overrides),

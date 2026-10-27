@@ -16,8 +16,11 @@
 -- queue and only one holds the banner (and the keyboard/mouse) at a time.
 -- An urgent ask (stopping a runaway) jumps the line and preempts a normal
 -- holder, whose state turns "preempted" so its script stops.
--- Escape (or "Not now") cancels the holder and everyone queued.
--- Stop (Esc twice, or the "Stop task" button) is a hard no: the holder's
+-- Holding Escape for a second (or "Not now") cancels the holder and everyone
+-- queued; keep holding to Stop. A quick tap of Escape passes through to the
+-- app, because Escape is too common to mean "stop Claude" (Matt, 2026-10-27).
+-- A small fill bar under the banner shows the hold's progress.
+-- Stop (keep holding Esc, or the "Stop task" button) is a hard no: the holder's
 -- state turns "stopped", its agent (Claude session id) is blocked from asking
 -- again for BLOCK_SECS (every later ask returns "stopped" at once), and its
 -- claude process gets SIGINT, which aborts the session's current turn. The
@@ -33,7 +36,7 @@
 --   light (--light): small pill in the "claude_control_light" HUD slot, no glow.
 --                    Low-impact screen/sound changes (open a file or app, focus a
 --                    window, play/pause, volume, restart audio) Matt can keep
---                    typing through. Same queue, same Esc / Esc Esc / Stop.
+--                    typing through. Same queue, same hold-Esc / Stop.
 --                    Snooze chips (30s / 1m / 5m) put the ask aside (Matt, 2026-10-22).
 -- link (--link / --thread): clicking the banner body opens the asking agent's
 -- thread or session, so Matt can see who wants control and why.
@@ -41,7 +44,9 @@
 
 -- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
 local TWEAKS = {
-  ["timing.stopWindow"] = { 3, min = 1, max = 8, step = 0.5, note = "Seconds after Esc in which a second Esc means Stop" },
+  ["timing.stopWindow"] = { 3, min = 1, max = 8, step = 0.5, note = "Seconds after a pause in which another Esc hold means Stop" },
+  ["timing.holdPause"] = { 1, min = 0.3, max = 3, step = 0.1, note = "Seconds to hold Esc before Claude pauses (a shorter tap passes through to the app)" },
+  ["timing.holdStop"] = { 2.5, min = 1, max = 6, step = 0.1, note = "Seconds of one unbroken Esc hold that stop Claude's task" },
   ["glow.rimWidth"] = { 4, min = 0, max = 12, step = 0.5, note = "Thickness of the solid screen-edge rim in points" },
   ["glow.pulseBase"] = { 0.85, min = 0.4, max = 1, step = 0.01, note = "Average brightness of the pulsing screen-edge glow" },
   ["look.pillRadius"] = { 13, min = 0, max = 31, step = 1, note = "Corner roundness of the small ask pill in points" },
@@ -176,6 +181,7 @@ local function hideBanner()
   if activeWatchers.claudeControlEsc then
     activeWatchers.claudeControlEsc:stop()
     activeWatchers.claudeControlEsc = nil
+    M.endHold()  -- the banner went away mid-hold: its key up won't reach us
   end
 end
 
@@ -195,6 +201,101 @@ end
 local function isRealEsc(e)
   return e:getKeyCode() == hs.keycodes.map.escape
     and e:getProperty(hs.eventtap.event.properties.eventSourceUserData) == 0
+end
+
+-- Hold-to-pause (Matt, 2026-10-27). holdTap swallows a real Esc press and
+-- times it. Released before holdPause it was an ordinary tap, so it's re-posted
+-- (marked, so isRealEsc skips it) to the app with focus. Held past holdPause:
+-- onPause(); still held at holdStop: onStop(). A fill bar shows the hold.
+-- onRelease(paused, stopped) runs on key up.
+local hold = nil  -- the hold in progress: { start, paused, stopped, bar, timer }
+
+local function endHold()
+  if hold and hold.timer then hold.timer:stop() end
+  if hold and hold.bar then hold.bar:delete() end
+  hold = nil
+end
+
+M.endHold = endHold
+
+local function holdBar(anchor, label)
+  local w, h = 300, 34
+  local f
+  if anchor then
+    f = { x = anchor.x + (anchor.w - w) / 2, y = anchor.y + anchor.h + 8, w = w, h = h }
+  else
+    local scr = hs.screen.mainScreen():frame()
+    f = { x = scr.x + (scr.w - w) / 2, y = scr.y + scr.h / 2 + 40, w = w, h = h }
+  end
+  local c = hs.canvas.new(f)
+  c:level(hs.canvas.windowLevels.screenSaver + 1)
+  c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
+  c:appendElements(
+    { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = 9, yRadius = 9 },
+      fillColor = { hex = "#FFF6E5", alpha = T("look.bannerOpacity") } },
+    { type = "text", text = label, frame = { x = 10, y = 3, w = w - 20, h = 16 },
+      textSize = 11, textColor = { hex = "#3B2A12" }, textAlignment = "center" },
+    { type = "rectangle", action = "fill", frame = { x = 12, y = 22, w = w - 24, h = 6 },
+      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = { hex = "#F1E2C6" } },
+    { type = "rectangle", action = "fill", frame = { x = 12, y = 22, w = 0, h = 6 },
+      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = { hex = "#3B2A12" } }
+  )
+  c:show()
+  return c, w - 24
+end
+
+-- opts: { anchor = frame|nil, stopOnly = bool, onPause, onStop, onRelease }
+-- stopOnly: one hold of holdPause seconds stops (the after-pause window).
+local function holdTap(opts)
+  local types = hs.eventtap.event.types
+  local function handle(e)
+    if not isRealEsc(e) then return false end
+    if e:getType() == types.keyDown then
+      if hold then return true end  -- key repeat while held
+      local pauseAt, stopAt = T("timing.holdPause"), T("timing.holdStop")
+      if opts.stopOnly then stopAt = pauseAt end
+      local label = opts.stopOnly and "Keep holding Esc to stop Claude's task"
+        or "Keep holding Esc to pause Claude"
+      local bar, full = holdBar(opts.anchor, label)
+      local h = { start = hs.timer.secondsSinceEpoch(), bar = bar }
+      hold = h
+      h.timer = hs.timer.doEvery(0.02, function()
+        local el = hs.timer.secondsSinceEpoch() - h.start
+        bar[4].frame = { x = 12, y = 22, w = math.min(1, el / stopAt) * full, h = 6 }
+        if el >= pauseAt and not h.paused and not opts.stopOnly then
+          h.paused = true
+          bar[2].text = "Claude paused. Keep holding to stop its task."
+          if opts.onPause then opts.onPause() end
+        end
+        if el >= stopAt and not h.stopped then
+          h.stopped, h.paused = true, true
+          bar[2].text = "Claude's task stopped."
+          if opts.onStop then opts.onStop() end
+        end
+        -- Key up never came (tap disabled, or Hammerspoon missed it): give up.
+        if el > stopAt + 8 and hold == h then endHold() end
+      end)
+      return true
+    end
+    if not hold then return false end  -- key up of a press we didn't catch
+    local h = hold
+    endHold()
+    if not h.paused and M._testNoPost then
+      M._passedThrough = (M._passedThrough or 0) + 1
+    elseif not h.paused then
+      -- A quick tap: hand Escape to the app as if we'd never caught it.
+      local mark = hs.eventtap.event.properties.eventSourceUserData
+      for _, isDown in ipairs({ true, false }) do
+        local ev = hs.eventtap.event.newKeyEvent({}, hs.keycodes.map.escape, isDown)
+        ev:setProperty(mark, 1)
+        ev["po" .. "st"](ev)
+      end
+    end
+    if opts.onRelease then opts.onRelease(h.paused, h.stopped) end
+    return true
+  end
+  M._holdHandle = handle  -- tests feed unposted key events through this
+  return hs.eventtap.new({ types.keyDown, types.keyUp }, handle):start()
 end
 
 -- Interrupt the asking Claude session: SIGINT aborts its current turn (the
@@ -228,9 +329,11 @@ local function stopTicket(id)
   advance()
 end
 
--- Matt pressed Esc ("not now"): cancel the holder and everyone waiting. For
--- STOP_WINDOW seconds a second Esc upgrades it to Stop for the holder.
-local function cancel()
+-- Matt held Esc or clicked "Not now": cancel the holder and everyone waiting.
+-- For STOP_WINDOW seconds another Esc hold upgrades it to Stop for the holder.
+-- silent: a hold is still under his finger; its key up arms the window.
+local armStopWindow
+local function cancel(silent)
   local id = active
   hideBanner()
   setState("cancelled")
@@ -238,22 +341,27 @@ local function cancel()
   for _, q in ipairs(queue) do tickets[q].state = "cancelled" end
   queue = {}
   disarmStop()
+  if silent then return id end
+  armStopWindow(id)
+  return id
+end
+
+-- After a pause: another Esc hold within STOP_WINDOW seconds stops the task.
+armStopWindow = function(id)
+  disarmStop()
   if not (id and tickets[id] and not tickets[id].quiet) then
     hs.alert.show("Claude paused. You have control.", 1.2)
     return
   end
-  local alertId = hs.alert.show("Claude paused. Press Esc again to stop its task.", T("timing.stopWindow"))
-  local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
-    if isRealEsc(e) then
+  local alertId = hs.alert.show("Claude paused. Hold Esc again to stop its task.", T("timing.stopWindow"))
+  activeWatchers.claudeControlStopTap = holdTap({ stopOnly = true,
+    onStop = function()
       hs.alert.closeSpecific(alertId)
-      stopTicket(id)
-      return true
-    end
-    return false
+      hs.timer.doAfter(0, function() stopTicket(id) end)
+    end })
+  activeWatchers.claudeControlStopTimer = hs.timer.doAfter(T("timing.stopWindow"), function()
+    if not hold then disarmStop() end  -- don't cut off a stop hold already under way
   end)
-  tap:start()
-  activeWatchers.claudeControlStopTap = tap
-  activeWatchers.claudeControlStopTimer = hs.timer.doAfter(T("timing.stopWindow"), disarmStop)
 end
 
 -- Long reasons wrap instead of truncating: the wrapping text element grows to
@@ -335,7 +443,7 @@ local function render()
     title = state == "pending" and string.format("Claude, in %d: %s", remaining, reasonText)
       or ("Claude: " .. reasonText)
     local t = active and tickets[active]
-    sub = (t and t.link) and "Click: open thread  ·  Esc not now" or "Esc not now  ·  Esc Esc stop"
+    sub = (t and t.link) and "Click: open thread  ·  Hold Esc: pause" or "Hold Esc: pause  ·  keep holding: stop"
   elseif state == "pending" then
     title = string.format("Claude wants to take control in %d…", remaining)
     sub = reasonText .. "  ·  Hands off the keyboard and mouse."
@@ -406,12 +514,12 @@ local function fullCanvas()
     { id = "notnow", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w / 2 - 170, y = 76, w = 160, h = 28 },
       roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = { hex = "#F1E2C6" } },
-    { type = "text", text = "Not now  ·  Esc", frame = { x = w / 2 - 170, y = 81, w = 160, h = 18 },
+    { type = "text", text = "Not now  ·  hold Esc", frame = { x = w / 2 - 170, y = 81, w = 160, h = 18 },
       textSize = 12, textColor = { hex = "#3B2A12" }, textAlignment = "center" },
     { id = "stop", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w / 2 + 10, y = 76, w = 160, h = 28 },
       roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = { hex = "#FF7A1A" } },
-    { type = "text", text = "Stop task  ·  Esc Esc", frame = { x = w / 2 + 10, y = 81, w = 160, h = 18 },
+    { type = "text", text = "Stop  ·  keep holding Esc", frame = { x = w / 2 + 10, y = 81, w = 160, h = 18 },
       textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" }
   )
@@ -451,15 +559,26 @@ local function begin(reason, seconds, light)
   drawBanner()
   render()
 
-  local esc = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
-    -- Only real key presses; ignore the synthetic events the agent posts
-    if isRealEsc(e) then
-      cancel()
-      return true
-    end
-    return false
-  end)
-  esc:start()
+  -- One unbroken Esc hold: pause at holdPause, stop at holdStop. Only real key
+  -- presses count (isRealEsc skips the synthetic events the agent posts).
+  local anchor = activeWatchers.claudeControlCanvas and activeWatchers.claudeControlCanvas:frame()
+  local pausedId
+  local esc
+  esc = holdTap({ anchor = anchor,
+    onPause = function()
+      -- cancel() stops claudeControlEsc via hideBanner; this tap must live
+      -- on until key up, so detach it first.
+      activeWatchers.claudeControlEsc = nil
+      pausedId = cancel(true)
+    end,
+    onStop = function()
+      if pausedId then hs.timer.doAfter(0, function() stopTicket(pausedId) end) end
+    end,
+    onRelease = function(paused, stopped)
+      if not paused then return end
+      esc:stop()
+      if not stopped then armStopWindow(pausedId) end
+    end })
   activeWatchers.claudeControlEsc = esc
 
   local held = 0
