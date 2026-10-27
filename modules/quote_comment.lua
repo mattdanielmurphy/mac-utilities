@@ -40,7 +40,7 @@ local PADENTER = hs.keycodes.map["padenter"]
 
 local log = hs.logger.new("quote_cmt", "info")
 
-local updateBadge -- forward decl
+local updateBadge, barFrame, followBox -- forward decl
 
 -- Feel knobs: ~/.hammerspoon/tweaks/quote_comment.json, or the Tweaks panel (⌃⌥⌘T).
 local T = require("modules.tweaks").open{
@@ -50,8 +50,11 @@ local T = require("modules.tweaks").open{
     ["look.queueBorderWidth"] = { 2, min = 0.5, max = 5, step = 0.5, note = "Thickness of the queue button outline in points" },
     ["look.sendBorderWhite"] = { 0.55, min = 0, max = 1, step = 0.05, note = "Brightness of the Send all button border (0 black, 1 white)" },
     ["look.sendTextWhite"] = { 0.15, min = 0, max = 1, step = 0.05, note = "Brightness of the Send all button label (0 black, 1 white)" },
-    ["bar.right"]    = { 24, min = 0, max = 400, step = 2, note = "Bar's distance from Claude's right edge (px)" },
-    ["bar.bottom"]   = { 130, min = 0, max = 600, step = 2, note = "Bar's distance from Claude's bottom edge (px)" },
+    ["bar.lift"]     = { 8, min = 0, max = 80, step = 1, note = "Gap between the bar and the top of Claude's message box (px); the bar rides above the box as it grows" },
+    ["bar.inset"]    = { 0, min = 0, max = 200, step = 2, note = "Bar's distance in from the message box's right edge (px)" },
+    ["bar.follow"]   = { 0.25, min = 0.1, max = 2, step = 0.05, note = "Seconds between checks that keep the bar above the message box while you type" },
+    ["bar.right"]    = { 24, min = 0, max = 400, step = 2, note = "Fallback when the message box can't be found: distance from Claude's right edge (px)" },
+    ["bar.bottom"]   = { 130, min = 0, max = 600, step = 2, note = "Fallback when the message box can't be found: distance from Claude's bottom edge (px)" },
     ["bar.height"]   = { 26, min = 18, max = 44, step = 1, note = "Bar height (px)" },
     ["bar.gap"]      = { 6, min = 0, max = 20, step = 1, note = "Gap between the pill and buttons (px)" },
     ["bar.text"]     = { 13, min = 9, max = 20, step = 0.5, note = "Label size (pt)" },
@@ -559,26 +562,69 @@ local function onBarClick(id)
   end
 end
 
+-- Where the bar goes: just above Claude's message box, right-aligned with it, so it
+-- never sits on typed text (the box grows upward as you type). Falls back to fixed
+-- offsets from the window (or screen) corner when the box can't be found.
+local lastBoxEl
+local function boxFrameNow()
+  local app = claudeApp()
+  if not app then return nil end
+  local el = focusedComposer(app) or (pendingComposer() or {}).el
+  if not el and alive(lastBoxEl) then el = lastBoxEl end
+  if not el then local c = pickComposer(app); el = c and c.el end
+  if not el then return nil end
+  lastBoxEl = el
+  local box = boxOf(el)
+  local p, z = safeAttr(box, "AXPosition"), safeAttr(box, "AXSize")
+  if not (p and z) or z.w < 50 then return nil end
+  return { x = p.x, y = p.y, w = z.w, h = z.h }
+end
+
+barFrame = function(front)
+  local h, gap = T("bar.height"), T("bar.gap")
+  local w = PILL_W + QUEUE_W + SEND_W + gap * 2
+  local win = front and (front:focusedWindow() or front:mainWindow())
+  if win then
+    local f = win:frame()
+    local b = boxFrameNow()
+    if b then
+      local x = math.max(f.x, b.x + b.w - w - T("bar.inset"))
+      local y = math.max(f.y + 28, b.y - h - T("bar.lift"))
+      return { x = x, y = y, w = w, h = h }
+    end
+    return { x = f.x + f.w - w - T("bar.right"), y = f.y + f.h - h - T("bar.bottom"), w = w, h = h }
+  end
+  local s = hs.screen.mainScreen():frame()
+  return { x = s.x + s.w - w - 24, y = s.y + s.h - h - 24, w = w, h = h }
+end
+
+-- While the bar shows, re-check the box often and move the bar with it.
+followBox = function()
+  if activeWatchers.quoteBadgeFollow then return end
+  activeWatchers.quoteBadgeFollow = hs.timer.doEvery(T("bar.follow"), function()
+    local c = activeWatchers.quoteBadge
+    if not c then activeWatchers.quoteBadgeFollow:stop(); activeWatchers.quoteBadgeFollow = nil; return end
+    local front = hs.application.frontmostApplication()
+    if not (front and front:bundleID() == CLAUDE_BUNDLE) then return end
+    local nf, of = barFrame(front), c:frame()
+    if math.abs(nf.x - of.x) > 0.5 or math.abs(nf.y - of.y) > 0.5 then c:frame(nf) end
+  end)
+end
+
 updateBadge = function(hidden)
   local front = hs.application.frontmostApplication()
   local claudeFront = hidden or (front and front:bundleID() == CLAUDE_BUNDLE)
   if (#queue == 0 and not pending) or not claudeFront then
     if activeWatchers.quoteBadge then activeWatchers.quoteBadge:delete(); activeWatchers.quoteBadge = nil end
+    if activeWatchers.quoteBadgeFollow then activeWatchers.quoteBadgeFollow:stop(); activeWatchers.quoteBadgeFollow = nil end
     return
   end
   local h, gap, size = T("bar.height"), T("bar.gap"), T("bar.text")
-  local w = PILL_W + QUEUE_W + SEND_W + gap * 2
-  local frame
-  local win = (not hidden) and (front:focusedWindow() or front:mainWindow())
-  if win then
-    local f = win:frame()
-    frame = { x = f.x + f.w - w - T("bar.right"), y = f.y + f.h - h - T("bar.bottom"), w = w, h = h }
-  else
-    local s = hs.screen.mainScreen():frame()
-    frame = { x = s.x + s.w - w - 24, y = s.y + s.h - h - 24, w = w, h = h }
-  end
+  local frame = barFrame(hidden and nil or front)
+
 
   local c = activeWatchers.quoteBadge
+  if not hidden then followBox() end
   if not c then
     c = hs.canvas.new(frame)
     c:level(hs.canvas.windowLevels.floating)
@@ -728,6 +774,7 @@ function M.stop()
   if activeWatchers.quoteReturnTap then activeWatchers.quoteReturnTap:stop(); activeWatchers.quoteReturnTap = nil end
   if activeWatchers.quoteMicTask then activeWatchers.quoteMicTask:terminate(); activeWatchers.quoteMicTask = nil end
   if activeWatchers.quoteBadge then activeWatchers.quoteBadge:delete(); activeWatchers.quoteBadge = nil end
+  if activeWatchers.quoteBadgeFollow then activeWatchers.quoteBadgeFollow:stop(); activeWatchers.quoteBadgeFollow = nil end
   if activeWatchers.quoteAppWatcher then activeWatchers.quoteAppWatcher:stop(); activeWatchers.quoteAppWatcher = nil end
   if activeWatchers.quoteWinWatcher then activeWatchers.quoteWinWatcher:stop(); activeWatchers.quoteWinWatcher = nil end
 end
@@ -746,6 +793,7 @@ M._previewBar = function(pendingFlag)
   pending, activeWatchers.quoteBadge = saved, savedC
   return img
 end
+M._barFrame = function() return barFrame(claudeApp()) end
 M._sendAll = function(release) sendAll(currentComposer(), release or function() end) end
 M._state = function() return { queued = #queue, pending = pending ~= nil, text = queueText(), dictating = claudeMic } end
 M._formatQuote, M._itemText, M._isComment, M._commentText = formatQuote, itemText, isComment, commentText
