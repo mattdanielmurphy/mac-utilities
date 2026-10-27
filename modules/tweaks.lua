@@ -28,6 +28,9 @@
 --     ~/.hammerspoon/tweaks_apps.json, so the new values are how the app ships from now on.
 --   Follow focus: the panel shows the focused app's tweaks (tweaks_apps.json "focus" bundle
 --     IDs, or a matching app name) until Matt pins another app (M.appsForFocus).
+--   Finding new knobs: `bin/tweaks scan` lists literal feel values in modules (no AI),
+--     `bin/tweaks prune` has Sonnet keep/drop and name them, `bin/tweaks report` shows the
+--     keepers for an agent to wire up. Decisions live in tweaks/candidates/ and stick.
 --   Presets: named value sets in ~/Library/Application Support/MDMA/tweak-presets/<app>.json,
 --     outside every repo so switching never dirties git (M.savePreset / loadPreset).
 
@@ -108,7 +111,7 @@ function M.merge(doc, app, knobs)
       out.tweaks[key] = knob
       changed = true
     end
-    for _, f in ipairs({ "min", "max", "step", "note" }) do
+    for _, f in ipairs({ "min", "max", "step", "note", "choices" }) do
       if knob[f] == nil and decl[f] ~= nil then knob[f] = decl[f]; changed = true end
     end
     if knob.default ~= default then knob.default = default; changed = true end
