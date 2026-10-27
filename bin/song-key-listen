@@ -13,6 +13,9 @@ The audio source is tapped; Essentia (KeyExtractor, EDMA profile) names the key
 over the last WINDOW seconds. The pitch-class profile (HPCP) is printed too, so
 the caller can check how well a web key's scale fits what is actually sounding,
 and "mode" is the church mode on the heard tonic whose notes hold the most energy.
+"ler" (low-energy ratio) is the share of 50 ms frames quieter than half the window's
+average loudness: speech pauses between words (0.35-0.55, even over a quiet music
+bed), music rarely drops out (under 0.25). The caller uses it to ignore speech.
 Silence prints {"silent": true}. Needs the venv from ~/.local/share/song-key
 (uv venv -p 3.12 … && uv pip install essentia numpy).
 """
@@ -60,6 +63,12 @@ def chroma(audio):
     return total / s if s > 0 else total
 
 
+def low_energy_ratio(audio):
+    frame = SR // 20                                   # 50 ms
+    rms = np.sqrt(np.mean(audio[: len(audio) // frame * frame].reshape(-1, frame) ** 2, axis=1))
+    return float(np.mean(rms < 0.5 * rms.mean()))
+
+
 def analyze(audio):
     if float(np.sqrt(np.mean(audio ** 2))) < SILENT_RMS:
         return {"silent": True}
@@ -73,6 +82,7 @@ def analyze(audio):
     if fits[mode] - fits[home] < 0.02:
         mode = home
     return {"key": f"{k} {scale}", "tonic": tonic, "strength": round(float(strength), 3),
+            "ler": round(low_energy_ratio(audio), 3),
             "mode": f"{k} " + {"Ionian": "major", "Aeolian": "minor"}.get(mode, mode), "chroma": [round(float(x), 4) for x in c]}
 
 

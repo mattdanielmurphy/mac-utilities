@@ -8,8 +8,14 @@
 --     (human transcriptions, with modes per section) and falls back to AcousticBrainz.
 --   • Shows a small pill on the built-in display, just left of the Piano HUD's spot,
 --     while music plays: the key, the section keys if they differ, and how sure it is.
---     It fades out PAUSE_HIDE seconds after playback stops. Click it to open the
---     Hooktheory page when there is one.
+--     It fades out PAUSE_HIDE seconds after playback stops.
+--   • Music only: the listener measures how often the sound drops out (speech pauses
+--     between words, music doesn't), so a spoken reel, podcast or video never brings the
+--     pill up. Apple Music and Spotify tracks found online show at once; anything else
+--     waits until the ear hears music, and speech hides the pill again.
+--   • Easy to dismiss: click it, press Esc in the first few seconds, or let it fade by
+--     itself. A dismissed pill stays away until the next song. The ↗ corner opens Hooktheory.
+--   Feel knobs: ~/.hammerspoon/tweaks/song_key.json, or the Tweaks panel (⌃⌥⌘T).
 
 local M = {
   id = "song_key",
@@ -34,6 +40,20 @@ local CFG = {
 }
 M.config = CFG
 
+local T = hs and require("modules.tweaks").open{
+  app = "Song Key HUD",
+  file = require("modules.tweaks").dir .. "/song_key.json",
+  knobs = {
+    ["ear.speechLer"]    = { 0.3, min = 0.15, max = 0.6, step = 0.01, note = "Pause share at or above which the sound counts as speech" },
+    ["dismiss.autoHide"] = { 25, min = 0, max = 120, step = 1, note = "Seconds the pill stays up before fading by itself (0 = never)" },
+    ["dismiss.escSeconds"] = { 8, min = 0, max = 30, step = 1, note = "Seconds after it appears that Esc hides it" },
+  },
+}
+
+-- Apps whose audio is never a song (reels in the Claude app).
+local IGNORE = { ["com.anthropic.claudefordesktop"] = true }
+local TRUSTED = { ["com.apple.Music"] = true, ["com.spotify.client"] = true }
+
 local state = {
   song = nil,        -- "artist|title" currently shown or being looked up
   result = nil,      -- last song-key JSON
@@ -45,15 +65,17 @@ local state = {
   ear = {},          -- recent listener readings (newest last)
   source = nil,      -- path of the app the ear listens to (nil = all system audio)
   earStatus = nil,   -- "listening" | "quiet" | "error" while there is no usable reading
+  bundle = nil,      -- bundle ID of the app playing
+  dismissed = nil,   -- song the pill was dismissed (or faded) for; stays hidden until the next
 }
 
 local HTML = [==[
 <!doctype html><html><head><meta charset="utf-8"><style>
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
     font-family: -apple-system, "SF Pro Display", sans-serif; -webkit-user-select: none; }
-  .pill { position: absolute; inset: 0; border-radius: 14px; cursor: pointer;
+  .pill { position: absolute; inset: 0; border-radius: 14px; cursor: default;
     background: rgba(20, 24, 28, 0.55); color: #f4f1ea; }
-  .label { position: absolute; left: 16px; top: 10px; right: 16px; font-size: 10px;
+  .label { position: absolute; left: 16px; top: 10px; right: 52px; font-size: 10px;
     letter-spacing: 0.08em; color: rgba(244, 241, 234, 0.6); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .key { position: absolute; left: 16px; top: 24px; right: 16px; font-size: 24px;
@@ -63,6 +85,14 @@ local HTML = [==[
   .low .key, .low #kb { opacity: 0.7; }
   .ear { position: absolute; left: 16px; top: 120px; right: 16px; font-size: 11px;
     color: rgba(244, 241, 234, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn { position: absolute; top: 5px; width: 20px; height: 20px; border-radius: 10px;
+    font-size: 12px; line-height: 20px; text-align: center; cursor: pointer;
+    color: rgba(244, 241, 234, 0.6); }
+  .btn:hover { background: rgba(244, 241, 234, 0.15); color: #f4f1ea; }
+  #close { right: 6px; }  #open { right: 28px; display: none; }
+  .esc { position: absolute; right: 10px; top: 120px; font-size: 9px; letter-spacing: 0.06em;
+    color: rgba(244, 241, 234, 0.6); border: 1px solid rgba(244, 241, 234, 0.3);
+    border-radius: 4px; padding: 0 4px; display: none; }
   #kb { position: absolute; left: 16px; right: 16px; top: 76px; height: 38px; }
   #kb .w { fill: #f4f1ea; stroke: rgba(20, 24, 28, 0.6); stroke-width: 1; }
   #kb .b { fill: #1c2024; }
@@ -75,6 +105,9 @@ local HTML = [==[
   <div class="sub" id="sub">&nbsp;</div>
   <svg id="kb" viewBox="0 0 208 38" preserveAspectRatio="none"></svg>
   <div class="ear" id="ear">&nbsp;</div>
+  <div class="btn" id="open" title="Open on Hooktheory">↗</div>
+  <div class="btn" id="close" title="Hide until the next song (click anywhere, or Esc)">✕</div>
+  <div class="esc" id="esc">ESC HIDES</div>
 </div><script>
   // Scale steps from the tonic, by the mode word in the key name.
   var MODES = { major: [0,2,4,5,7,9,11], ionian: [0,2,4,5,7,9,11], dorian: [0,2,3,5,7,9,10],
@@ -105,15 +138,19 @@ local HTML = [==[
     }
     document.getElementById('kb').innerHTML = svg;
   }
-  document.getElementById('pill').addEventListener('mousedown', function () {
-    try { webkit.messageHandlers.songKey.postMessage({ type: 'click' }); } catch (e) {}
+  // Click anywhere hides it; the ↗ corner opens Hooktheory instead.
+  document.getElementById('pill').addEventListener('mousedown', function (e) {
+    var type = e.target.id === 'open' ? 'open' : 'dismiss';
+    try { webkit.messageHandlers.songKey.postMessage({ type: type }); } catch (err) {}
   });
+  function escHint(on) { document.getElementById('esc').style.display = on ? 'block' : 'none'; }
   function update(d) {
     document.getElementById('label').textContent = d.label || 'SONG KEY';
     document.getElementById('key').textContent = d.key || '…';
     document.getElementById('sub').textContent = d.sub || ' ';
     document.getElementById('ear').textContent = d.ear || ' ';
     document.getElementById('pill').className = 'pill' + (d.low ? ' low' : '');
+    document.getElementById('open').style.display = d.url ? 'block' : 'none';
     drawKeys(d.kb || d.key, d.altTonic);
   }
 </script></body></html>
@@ -132,10 +169,14 @@ local function draw(d)
   if wv and state.ready then wv:evaluateJavaScript("update(" .. hs.json.encode(d) .. ")") end
 end
 
+local dismiss   -- defined with show/hide below
+
 local function onMessage(msg)
   local body = msg and msg.body or {}
-  if body.type == "click" and state.result and state.result.url then
+  if body.type == "open" and state.result and state.result.url then
     hs.urlevent.openURL(state.result.url)
+  elseif body.type == "dismiss" then
+    dismiss()
   end
 end
 
@@ -148,6 +189,7 @@ local function ensureView()
     if action == "didFinishNavigation" then
       state.ready = true
       if state.pending then draw(state.pending) end
+      if activeWatchers.songKeyEsc then activeWatchers.songKeyView:evaluateJavaScript("escHint(true)") end
     end
   end)
   wv:windowStyle({ "borderless", "nonactivating" })
@@ -161,19 +203,57 @@ local function ensureView()
   return wv
 end
 
+local function clearDismissers()
+  for _, k in ipairs({ "songKeyEsc", "songKeyEscTimer", "songKeyAutoHide" }) do
+    local w = activeWatchers[k]
+    if w then
+      if w.delete then w:delete() else w:stop() end
+      activeWatchers[k] = nil
+    end
+  end
+  local wv = activeWatchers.songKeyView
+  if wv and state.ready then wv:evaluateJavaScript("escHint(false)") end
+end
+
 local function show()
   if state.visible then return end
   local wv = ensureView()
   wv:frame(rect())
   wv:show(CFG.FADE)
   state.visible = true
-  startListener()
+  clearDismissers()
+  -- Esc only for the first few seconds, so it isn't taken from other apps while music plays.
+  local escFor = T and T("dismiss.escSeconds") or 8
+  if escFor > 0 then
+    activeWatchers.songKeyEsc = hs.hotkey.bind({}, "escape", function() dismiss() end)
+    if state.ready then wv:evaluateJavaScript("escHint(true)") end
+    activeWatchers.songKeyEscTimer = hs.timer.doAfter(escFor, function()
+      activeWatchers.songKeyEscTimer = nil
+      if activeWatchers.songKeyEsc then activeWatchers.songKeyEsc:delete(); activeWatchers.songKeyEsc = nil end
+      local v = activeWatchers.songKeyView
+      if v and state.ready then v:evaluateJavaScript("escHint(false)") end
+    end)
+  end
+  local auto = T and T("dismiss.autoHide") or 25
+  if auto > 0 then
+    activeWatchers.songKeyAutoHide = hs.timer.doAfter(auto, function()
+      activeWatchers.songKeyAutoHide = nil
+      dismiss()
+    end)
+  end
 end
 
 local function hide()
+  clearDismissers()
   if not state.visible then return end
   if activeWatchers.songKeyView then activeWatchers.songKeyView:hide(CFG.FADE) end
   state.visible = false
+end
+
+-- Hidden until the song changes; the ear stops too (nothing to show it to).
+function dismiss()
+  state.dismissed = state.song
+  hide()
   stopListener()
 end
 
@@ -237,6 +317,32 @@ function M.earSummary(readings)
   return { chroma = c, key = last.key, mode = mode, stable = top >= math.min(2, n), strength = strength }
 end
 
+-- "music" | "speech" | nil (not sure yet) from the recent readings: at least two of the
+-- last SMOOTH must agree. A reading's pause share (ler) at or above `speechLer` is speech.
+function M.heard(readings, speechLer)
+  if not readings or #readings == 0 then return nil end
+  local speech, music = 0, 0
+  for _, r in ipairs(readings) do
+    if r.ler then
+      if r.ler >= speechLer then speech = speech + 1 else music = music + 1 end
+    end
+  end
+  local need = math.min(2, #readings)
+  if music >= need and music > speech then return "music" end
+  if speech >= need and speech >= music then return "speech" end
+  return nil
+end
+
+-- Should the pill be up? Pure. Trusted players (Apple Music, Spotify) with the song
+-- found online show at once; everything else waits for the ear to hear music. Speech
+-- always hides it, and so does an ear that can't capture unless the song was found.
+function M.shouldShow(o)
+  if o.dismissed or o.ignored then return false end
+  if o.heard == "speech" then return false end
+  if o.heard == "music" then return true end
+  return (o.trusted or o.earError) and o.found or false
+end
+
 local MAJ_NAME = { "C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B" }
 local MIN_NAME = { "C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B" }
 
@@ -297,7 +403,7 @@ function M.describe(r, title, ear, earStatus)
     earLine = (best == "fits" and "Live agrees ✓ · hearing " or best == "close" and "Live: close · hearing "
       or "Live disagrees · hearing ") .. ear.key
   end
-  local d = { label = label, key = r.key, sub = sub, ear = earLine, low = r.confidence == "low" }
+  local d = { label = label, key = r.key, sub = sub, ear = earLine, low = r.confidence == "low", url = r.url }
   if r.source ~= "Hooktheory" then
     -- Computer analysis often mixes up a key and its relative (same notes), so
     -- show both and draw both home notes; Matt picks by ear.
@@ -311,6 +417,26 @@ local function redraw()
   local title = state.song and state.song:match("|(.*)$") or ""
   local ear = state.earStatus == nil and M.earSummary(state.ear) or nil
   draw(M.describe(state.result, title, ear, state.earStatus))
+end
+
+local function heardNow()
+  return M.heard(state.ear, T and T("ear.speechLer") or 0.3)
+end
+
+-- Shows or hides the pill for what is playing and heard right now.
+local function refresh()
+  if not state.playing then return end
+  local o = {
+    dismissed = state.dismissed ~= nil and state.dismissed == state.song,
+    ignored = state.bundle and IGNORE[state.bundle] or false,
+    heard = heardNow(),
+    trusted = state.bundle and TRUSTED[state.bundle] or false,
+    earError = state.earStatus == "error",
+    found = state.result and state.result.found or false,
+  }
+  -- Once up, only speech (or a dismiss) takes it down, so a quiet bar doesn't flicker it.
+  if M.shouldShow(o) then show()
+  elseif state.visible and (o.heard == "speech" or o.dismissed or o.ignored) then hide() end
 end
 
 -- ── Listener (only runs while the pill is up) ─────────────────────────────────
@@ -359,6 +485,7 @@ function startListener()
     end
     partial = partial:match("[^\n]*$")
     redraw()
+    refresh()
     return true
   end, CFG.LISTEN_DEVICE and { CFG.LISTEN_DEVICE }
          or state.source and { "--app", state.source }
@@ -377,6 +504,7 @@ local function lookup(artist, title, song)
     if code ~= 0 or not ok or type(r) ~= "table" then r = { found = false } end
     state.result = r
     redraw()
+    refresh()
   end, { artist, title })
   activeWatchers.songKeyLookup:start()
 end
@@ -440,10 +568,14 @@ local function poll()
           state.source = source
           stopListener()
         end
-        show()
-        if not activeWatchers.songKeyListen then startListener() end   -- retry after a capture error
-      elseif state.visible and now - state.lastPlaying > CFG.PAUSE_HIDE then
+        state.bundle = bundle ~= "null" and bundle or nil
+        local skip = state.dismissed == song or (state.bundle and IGNORE[state.bundle])
+        -- The ear runs while something plays (hidden too), so it can tell music from speech.
+        if not skip and not activeWatchers.songKeyListen then startListener() end
+        refresh()
+      elseif now - state.lastPlaying > CFG.PAUSE_HIDE then
         hide()
+        if activeWatchers.songKeyListen then stopListener() end
       end
     end)
   end, { "get", "title", "artist", "playbackRate", "clientBundleIdentifier" })
@@ -460,6 +592,7 @@ function M.start()
 end
 
 function M.stop()
+  clearDismissers()
   for _, k in ipairs({ "songKeyTimer", "songKeyScreens" }) do
     if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
   end
@@ -468,7 +601,7 @@ function M.stop()
   end
   if activeWatchers.songKeyView then activeWatchers.songKeyView:delete(); activeWatchers.songKeyView = nil end
   state.song, state.result, state.visible, state.ready, state.pending = nil, nil, false, false, nil
-  state.ear, state.earStatus = {}, nil
+  state.ear, state.earStatus, state.dismissed, state.bundle = {}, nil, nil, nil
 end
 
 -- Test hook: what the pill is showing right now.
@@ -476,7 +609,8 @@ function M.status()
   local wv = activeWatchers.songKeyView
   return { visible = wv and wv:isVisible() or false, song = state.song,
            playing = state.playing, shown = state.pending, result = state.result,
-           ear = M.earSummary(state.ear), earStatus = state.earStatus,
+           ear = M.earSummary(state.ear), earStatus = state.earStatus, heard = heardNow(),
+           dismissed = state.dismissed, bundle = state.bundle,
            listening = activeWatchers.songKeyListen ~= nil }
 end
 
