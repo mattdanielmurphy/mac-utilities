@@ -39,6 +39,21 @@
 -- thread or session, so Matt can see who wants control and why.
 -- Agents use the wrapper: ~/.hammerspoon/bin/claude-control ask "<reason>" [secs] [--light] [--thread cmsg_…]
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["timing.stopWindow"] = { 3, min = 1, max = 8, step = 0.5, note = "Seconds after Esc in which a second Esc means Stop" },
+  ["glow.rimWidth"] = { 4, min = 0, max = 12, step = 0.5, note = "Thickness of the solid screen-edge rim in points" },
+  ["glow.pulseBase"] = { 0.85, min = 0.4, max = 1, step = 0.01, note = "Average brightness of the pulsing screen-edge glow" },
+  ["look.pillRadius"] = { 13, min = 0, max = 31, step = 1, note = "Corner roundness of the small ask pill in points" },
+  ["look.pillOpacity"] = { 0.98, min = 0.5, max = 1, step = 0.01, note = "Opacity of the small ask pill background" },
+  ["look.pillBorderWidth"] = { 1.5, min = 0, max = 5, step = 0.5, note = "Border thickness of the small ask pill in points" },
+  ["look.bannerRadius"] = { 16, min = 0, max = 40, step = 1, note = "Corner roundness of the full banner in points" },
+  ["look.bannerOpacity"] = { 0.95, min = 0.5, max = 1, step = 0.01, note = "Opacity of the full banner background" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Claude Take-Control Banner",
+  file = require("modules.tweaks").dir .. "/claude_control.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "claude_control",
   name = "Claude Take-Control Banner"
@@ -58,7 +73,6 @@ local QUEUE_IDLE = 15
 -- Stop an agent that isn't waiting (2026-10-23: that SIGINT killed an idle thread).
 local ORPHAN_SECS = 8
 local BLOCK_SECS = 2 * 3600
-local STOP_WINDOW = 3    -- seconds after Esc in which a second Esc means Stop
 
 local layout = require("modules.hud_layout")
 
@@ -135,7 +149,7 @@ local function drawGlow()
         fillGradient = "linear", fillGradientColors = { edge, inner }, fillGradientAngle = 180 },
       -- solid rim
       { type = "rectangle", action = "stroke", frame = { x = 0, y = 0, w = f.w, h = f.h },
-        strokeColor = glowColor(0.8), strokeWidth = 4 }
+        strokeColor = glowColor(0.8), strokeWidth = T("glow.rimWidth") }
     )
     c:show()
     list[#list + 1] = c
@@ -144,7 +158,7 @@ local function drawGlow()
   local t = 0
   activeWatchers.claudeControlPulse = hs.timer.doEvery(0.05, function()
     t = t + 0.05
-    local a = 0.85 + 0.15 * math.sin(t * 2.5)
+    local a = T("glow.pulseBase") + 0.15 * math.sin(t * 2.5)
     for _, c in ipairs(list) do c:alpha(a) end
   end)
 end
@@ -228,7 +242,7 @@ local function cancel()
     hs.alert.show("Claude paused. You have control.", 1.2)
     return
   end
-  local alertId = hs.alert.show("Claude paused. Press Esc again to stop its task.", STOP_WINDOW)
+  local alertId = hs.alert.show("Claude paused. Press Esc again to stop its task.", T("timing.stopWindow"))
   local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
     if isRealEsc(e) then
       hs.alert.closeSpecific(alertId)
@@ -239,7 +253,7 @@ local function cancel()
   end)
   tap:start()
   activeWatchers.claudeControlStopTap = tap
-  activeWatchers.claudeControlStopTimer = hs.timer.doAfter(STOP_WINDOW, disarmStop)
+  activeWatchers.claudeControlStopTimer = hs.timer.doAfter(T("timing.stopWindow"), disarmStop)
 end
 
 -- Long reasons wrap instead of truncating: the wrapping text element grows to
@@ -346,9 +360,9 @@ local function lightCanvas()
   local chipsX = w - 12 - #SNOOZES * chipW - (#SNOOZES - 1) * chipGap
   c:appendElements(
     { id = "body", type = "rectangle", action = "fill", trackMouseDown = true,
-      roundedRectRadii = { xRadius = 13, yRadius = 13 },
-      fillColor = { hex = "#FFF6E5", alpha = 0.98 }, strokeColor = { hex = "#FF7A1A", alpha = 0.8 },
-      strokeWidth = 1.5 },
+      roundedRectRadii = { xRadius = T("look.pillRadius"), yRadius = T("look.pillRadius") },
+      fillColor = { hex = "#FFF6E5", alpha = T("look.pillOpacity") }, strokeColor = { hex = "#FF7A1A", alpha = 0.8 },
+      strokeWidth = T("look.pillBorderWidth") },
     { type = "text", text = "", frame = { x = 14, y = 10, w = w - 98, h = 20 },
       textSize = 13, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
       textLineBreak = "wordWrap" },
@@ -381,8 +395,8 @@ local function fullCanvas()
   local frame = { x = screen.x + (screen.w - w) / 2, y = screen.y + (screen.h - h) / 2, w = w, h = h }
   local c = hs.canvas.new(frame)
   c:appendElements(
-    { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = 16, yRadius = 16 },
-      fillColor = { hex = "#FFF6E5", alpha = 0.95 } },
+    { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = T("look.bannerRadius"), yRadius = T("look.bannerRadius") },
+      fillColor = { hex = "#FFF6E5", alpha = T("look.bannerOpacity") } },
     { type = "text", text = "", frame = { x = 20, y = 16, w = w - 40, h = 26 },
       textSize = 19, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" },

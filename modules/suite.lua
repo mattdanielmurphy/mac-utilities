@@ -9,6 +9,15 @@
 --   • UTILITIES.md describes each shareable module for Tyler and his Claude.
 --     tests/suite_test.lua fails if the two lists drift apart.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["guide.width"] = { 560, min = 400, max = 900, step = 10, note = "Width of the guide window in pixels" },
+  ["update.checkInterval"] = { 15 * 60, min = 300, max = 3600, step = 60, note = "Seconds between automatic update checks" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Suite",
+  file = require("modules.tweaks").dir .. "/suite.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {}
 
 local HOME = os.getenv("HOME")
@@ -120,7 +129,7 @@ function M.showGuide()
     @media (prefers-color-scheme:dark){body{background:#1c1d1b;color:#e8e8e3}h2{color:#a9b89c}}</style>]]
   local html = css .. hs.doc.markdown.convert(md)
   local sf = hs.screen.mainScreen():frame()
-  local w, h = 560, math.min(720, sf.h - 80)
+  local w, h = T("guide.width"), math.min(720, sf.h - 80)
   if _G.activeWatchers.suiteGuide then _G.activeWatchers.suiteGuide:delete() end
   local wv = hs.webview.new({ x = sf.x + (sf.w - w) / 2, y = sf.y + 40, w = w, h = h })
   wv:windowStyle({ "titled", "closable", "resizable" }):windowTitle("Matt's Utilities")
@@ -144,7 +153,6 @@ end
 -- config watcher, which reloads Hammerspoon. --ff-only refuses rather than
 -- merging if the clone has local commits, so nothing of Tyler's is overwritten.
 
-local UPDATE_EVERY = 15 * 60 -- plus on every wake, so a fix lands within minutes
 
 function M.update(manual)
   local task = hs.task.new("/usr/bin/git", function(code, out, err)
@@ -163,7 +171,7 @@ function M.startUpdater()
   hs.autoLaunch(true) -- start with the Mac, like any menu bar app
   _G.activeWatchers = _G.activeWatchers or {}
   _G.activeWatchers.suiteFirstUpdate = hs.timer.doAfter(60, function() M.update(false) end)
-  _G.activeWatchers.suiteUpdater = hs.timer.doEvery(UPDATE_EVERY, function() M.update(false) end)
+  _G.activeWatchers.suiteUpdater = hs.timer.doEvery(T("update.checkInterval"), function() M.update(false) end)
   _G.activeWatchers.suiteWake = hs.caffeinate.watcher.new(function(event)
     if event == hs.caffeinate.watcher.systemDidWake then
       _G.activeWatchers.suiteWakeUpdate = hs.timer.doAfter(20, function() M.update(false) end) -- Wi-Fi rejoins first

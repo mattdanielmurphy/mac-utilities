@@ -9,6 +9,14 @@
 -- ephemeral (local variables) — they are created and destroyed on demand.
 -- ────────────────────────────────────────────────────────────────────────────────
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["timing.hotkeyIdleSeconds"] = { 5, min = 2, max = 15, step = 0.5, note = "Seconds of inactivity before the hotkeys and notification disappear" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Clipboard Cleaner",
+  file = require("modules.tweaks").dir .. "/clipboard.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "clipboard",
   name = "Clipboard Cleaner"
@@ -109,7 +117,7 @@ local function _bindCleanupKeys(dupCount, isConsoleLog, isHTML, originalBunxCont
   table.insert(_hotkeys, hkEsc)
 
   -- Auto-remove the hotkeys after 5 seconds of inactivity.
-  _timer = hs.timer.doAfter(5, function()
+  _timer = hs.timer.doAfter(T("timing.hotkeyIdleSeconds"), function()
     _cleanup()
     _dismissNotification()
   end)

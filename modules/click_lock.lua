@@ -1,6 +1,18 @@
 -- ~/.hammerspoon/modules/click_lock.lua
 -- Mouse Click-Lock (Cmd + Option + Left Click locks the mouse down, and clicking again or pressing Escape releases it)
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["look.fillAlpha"] = { 0.75, min = 0, max = 1, step = 0.05, note = "Alert background opacity (0-1)" },
+  ["look.textAlpha"] = { 0.85, min = 0.3, max = 1, step = 0.05, note = "Alert text opacity (0-1)" },
+  ["look.radius"] = { 4, min = 0, max = 20, step = 1, note = "Alert corner radius in points" },
+  ["look.textSize"] = { 12, min = 8, max = 24, step = 1, note = "Alert text size in points" },
+  ["look.padding"] = { 8, min = 0, max = 24, step = 1, note = "Space around alert text in points" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Mouse Click-Lock (Cmd+Option+Click)",
+  file = require("modules.tweaks").dir .. "/click_lock.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "click_lock",
   name = "Mouse Click-Lock (Cmd+Option+Click)"
@@ -20,12 +32,12 @@ local suppressPhysicalUp = false
 local function notifySubtle(message, duration)
   local style = {
     strokeColor = { white = 0, alpha = 0 },
-    fillColor = { white = 0, alpha = 0.75 },
-    textColor = { white = 1, alpha = 0.85 },
-    radius = 4,
-    textSize = 12,
+    fillColor = { white = 0, alpha = T("look.fillAlpha") },
+    textColor = { white = 1, alpha = T("look.textAlpha") },
+    radius = T("look.radius"),
+    textSize = T("look.textSize"),
     atScreenEdge = 2, -- Top-right corner
-    padding = 8
+    padding = T("look.padding")
   }
   hs.alert.show(message, style, duration or 1.2)
 end

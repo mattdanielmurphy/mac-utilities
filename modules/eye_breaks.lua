@@ -69,6 +69,12 @@ local T = require("modules.tweaks").open{
   app = "Eye breaks",
   file = require("modules.tweaks").dir .. "/eye_breaks.json",
   knobs = {
+    ["eye.countdownTextSize"] = { 22, min = 12, max = 48, step = 1, note = "Font size of the eye-break countdown" },
+    ["eye.skipHintTextSize"] = { 14, min = 9, max = 24, step = 1, note = "Font size of the skip hint on the eye wash" },
+    ["overlay.dimAlpha"] = { 0.78, min = 0.3, max = 1, step = 0.02, note = "Opacity of the dark full-screen overlay" },
+    ["overlay.messageTextSize"] = { 34, min = 18, max = 72, step = 1, note = "Font size of the main message on the full-screen overlay" },
+    ["hard.dismissTextSize"] = { 15, min = 10, max = 28, step = 1, note = "Font size of the dismiss hint on the full-screen overlay" },
+    ["overlay.hintAlpha"] = { 0.6, min = 0.2, max = 1, step = 0.05, note = "Opacity of the dismiss hint on the overlay" },
     ["wash.fadeIn"]    = { 1.5, min = 0, max = 5, step = 0.1, note = "Seconds to fade to black and white" },
     ["wash.fadeOut"]   = { 0.8, min = 0, max = 3, step = 0.1, note = "Seconds to fade back" },
     ["wash.lightAlpha"] = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in light mode" },
@@ -111,9 +117,9 @@ function M.showEyeReminder()
     c[1] = { type = "rectangle", action = "fill", fillColor = hex(pal.bg, alpha) }
     c[2] = { type = "text", text = "Look 20 feet away", textSize = T("text.size"), textColor = hex(pal.text),
              textAlignment = "center", frame = { x = "10%", y = "40%", w = "80%", h = "10%" } }
-    c[3] = { type = "text", text = tostring(CFG.EYE_SHOW) .. " s", textSize = 22, textColor = hex(pal.text, 0.7),
+    c[3] = { type = "text", text = tostring(CFG.EYE_SHOW) .. " s", textSize = T("eye.countdownTextSize"), textColor = hex(pal.text, 0.7),
              textAlignment = "center", frame = { x = "10%", y = "52%", w = "80%", h = "6%" } }
-    c[4] = { type = "text", text = "Click or press Escape to skip", textSize = 14, textColor = hex(pal.text, 0.5),
+    c[4] = { type = "text", text = "Click or press Escape to skip", textSize = T("eye.skipHintTextSize"), textColor = hex(pal.text, 0.5),
              textAlignment = "center", frame = { x = "10%", y = "90%", w = "80%", h = "4%" } }
     c:mouseCallback(function() M.dismissEyeWash() end)
     c:canvasMouseEvents(true, false, false, false)
@@ -155,17 +161,17 @@ function M.showEscalation(activeSecs)
     local c = hs.canvas.new(f)
     c:level(hs.canvas.windowLevels.screenSaver)
     c:behavior({ "canJoinAllSpaces", "stationary" })
-    c[1] = { type = "rectangle", action = "fill", fillColor = { white = 0, alpha = 0.78 } }
+    c[1] = { type = "rectangle", action = "fill", fillColor = { white = 0, alpha = T("overlay.dimAlpha") } }
     c[2] = {
       type = "text",
       text = string.format("%s without a real break.\n\nStep away from the screen for 10 minutes.", fmtDuration(activeSecs)),
-      textSize = 34, textColor = { white = 1, alpha = 0.96 }, textAlignment = "center",
+      textSize = T("overlay.messageTextSize"), textColor = { white = 1, alpha = 0.96 }, textAlignment = "center",
       frame = { x = "10%", y = "38%", w = "80%", h = "20%" }
     }
     c[3] = {
       type = "text",
       text = "Click anywhere or press Escape to dismiss",
-      textSize = 15, textColor = { white = 1, alpha = 0.6 }, textAlignment = "center",
+      textSize = T("hard.dismissTextSize"), textColor = { white = 1, alpha = T("overlay.hintAlpha") }, textAlignment = "center",
       frame = { x = "10%", y = "62%", w = "80%", h = "5%" }
     }
     c:mouseCallback(function() M.dismissOverlay() end)

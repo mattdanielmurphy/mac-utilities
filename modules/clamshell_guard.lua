@@ -6,6 +6,18 @@
 -- 2. If the Mac is unattended in a closed bag (no remote interaction) and sustains high CPU
 --    (>20%) for 3+ minutes, forces system sleep as a circuit breaker to protect the battery and SoC.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["alert.cooldownSeconds"] = { 10 * 60, min = 60, max = 3600, step = 60, note = "Seconds to wait between repeat alerts" },
+  ["cpu.thresholdPercent"] = { 20.0, min = 5, max = 100, step = 5, note = "CPU percent that counts as high load" },
+  ["cpu.consecutiveChecks"] = { 3, min = 1, max = 10, step = 1, note = "Number of high-CPU checks in a row before alerting" },
+  ["timing.sleepDelaySeconds"] = { 2.0, min = 0, max = 10, step = 0.5, note = "Seconds to wait after alert before sleeping the Mac" },
+  ["timing.watchdogIntervalSeconds"] = { 60, min = 10, max = 300, step = 10, note = "Seconds between watchdog checks" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Clamshell & Bag Safeguard",
+  file = require("modules.tweaks").dir .. "/clamshell_guard.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "clamshell_guard",
   name = "Clamshell & Bag Safeguard"
@@ -16,10 +28,7 @@ local activeWatchers = _G.activeWatchers
 
 local HERMES_BIN = "/Users/matt/.local/bin/hermes"
 local lastAlertTime = 0
-local ALERT_COOLDOWN_SECONDS = 10 * 60 -- 10 minutes debounce
 local highCpuCount = 0
-local HIGH_CPU_THRESHOLD_PERCENT = 20.0
-local HIGH_CPU_CONSECUTIVE_LIMIT = 3 -- 3 checks * 60s = ~3 minutes
 
 -- Check if Mac is in a closed-lid, standalone bag scenario on battery
 local function isBagScenario()
@@ -108,7 +117,7 @@ local function checkImmediateLidClose()
   local recordingDetail = getActiveRecordingDetails()
   if recordingDetail then
     local now = os.time()
-    if now - lastAlertTime >= ALERT_COOLDOWN_SECONDS then
+    if now - lastAlertTime >= T("alert.cooldownSeconds") then
       lastAlertTime = now
       local alertMsg = "⚠️ Mac Alert: Lid closed on battery, but active recording or media was detected (" ..
                        recordingDetail .. "). System sleep is prevented."
@@ -135,12 +144,12 @@ local function runWatchdogCheck()
   local usage = hs.host.cpuUsage()
   local activeCpu = (usage and usage.overall and usage.overall.active) or 0
 
-  if activeCpu >= HIGH_CPU_THRESHOLD_PERCENT then
+  if activeCpu >= T("cpu.thresholdPercent") then
     highCpuCount = highCpuCount + 1
     print(string.format("⚠️ [clamshell_guard] Unattended bag load: %.1f%% CPU (check %d/%d)",
-      activeCpu, highCpuCount, HIGH_CPU_CONSECUTIVE_LIMIT))
+      activeCpu, highCpuCount, T("cpu.consecutiveChecks")))
 
-    if highCpuCount >= HIGH_CPU_CONSECUTIVE_LIMIT then
+    if highCpuCount >= T("cpu.consecutiveChecks") then
       highCpuCount = 0
       local emergencyMsg = string.format(
         "🚨 Mac Emergency Sleep: Sustained CPU load (%.1f%%) detected while unattended in your bag. Putting Mac to sleep now to protect battery and hardware.",
@@ -149,7 +158,7 @@ local function runWatchdogCheck()
       sendIMessageAlert(emergencyMsg)
 
       -- Give iMessage dispatch a moment to exit before sleeping system
-      hs.timer.doAfter(2.0, function()
+      hs.timer.doAfter(T("timing.sleepDelaySeconds"), function()
         hs.caffeinate.systemSleep()
       end)
     end
@@ -175,7 +184,7 @@ function M.start()
   activeWatchers.clamshellPowerWatcher:start()
 
   -- Recurring 60-second watchdog timer
-  activeWatchers.clamshellTimer = hs.timer.new(60, runWatchdogCheck)
+  activeWatchers.clamshellTimer = hs.timer.new(T("timing.watchdogIntervalSeconds"), runWatchdogCheck)
   activeWatchers.clamshellTimer:start()
 
   print("✓ [clamshell_guard] Module started")

@@ -3,6 +3,15 @@
 -- Allows rapid writing of logical formulas with live macro expansion,
 -- one-click symbol cards, Option-number shortcuts, and 1-stroke app pasting.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["window.width"] = { 840, min = 500, max = 1400, step = 10, note = "Editor window width in pixels" },
+  ["window.height"] = { 540, min = 300, max = 1000, step = 10, note = "Editor window height in pixels" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Logic Symbol Editor & Cheat Sheet",
+  file = require("modules.tweaks").dir .. "/logic_editor.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "logic_editor",
   name = "Logic Symbol Editor & Cheat Sheet",
@@ -752,8 +761,8 @@ local HTML_CONTENT = [[
 
 local function getCenteredFrame()
   local screen = hs.screen.mainScreen():frame()
-  local w = 840
-  local h = 540
+  local w = T("window.width")
+  local h = T("window.height")
   local x = math.floor(screen.x + (screen.w - w) / 2)
   local y = math.floor(screen.y + (screen.h - h) / 3) -- Natural viewing height
   return { x = x, y = y, w = w, h = h }

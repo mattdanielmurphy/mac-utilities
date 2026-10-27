@@ -289,6 +289,12 @@ local function T(key)
     app = "2FA Code Auto-Copy",
     file = require("modules.tweaks").dir .. "/otp_copy.json",
     knobs = {
+    ["look.pillWidth"] = { 230, min = 160, max = 360, step = 2, note = "Pill width in points" },
+    ["look.cornerRadius"] = { 12, min = 0, max = 26, step = 1, note = "Pill corner radius in points" },
+    ["look.fillOpacity"] = { 0.96, min = 0.5, max = 1, step = 0.02, note = "Pill background opacity, 0 to 1" },
+    ["look.borderWidth"] = { 1.5, min = 0, max = 4, step = 0.25, note = "Pill border thickness in points" },
+    ["look.codeSize"] = { 19, min = 12, max = 32, step = 1, note = "Font size of the code in points" },
+    ["look.subtitleSize"] = { 10.5, min = 8, max = 16, step = 0.5, note = "Font size of the 'Copied from' line in points" },
       ["pill.seconds"] = { 12, min = 3, max = 60, step = 1, note = "Seconds the code pill stays up" },
       ["pill.gap"] = { 8, min = 0, max = 40, step = 1, note = "Gap between the text field and the pill (px)" },
       ["paste.delay"] = { 0.3, min = 0, max = 2, step = 0.05, note = "Seconds after ⌘V before the pill fades" },
@@ -342,7 +348,7 @@ end
 local function showPill(code, source)
   hidePill()
   local dark = hs.host.interfaceStyle() == "Dark"
-  local w, h = 230, 52
+  local w, h = T("look.pillWidth"), 52
   local field = focusedFieldFrame()
   local screen = (field and hs.screen.find(hs.geometry.rect(field.x, field.y, field.w, field.h)))
     or (hs.window.focusedWindow() and hs.window.focusedWindow():screen()) or hs.screen.mainScreen()
@@ -354,15 +360,15 @@ local function showPill(code, source)
   c:clickActivating(false)
   c:appendElements(
     { type = "rectangle", action = "fill", trackMouseDown = true,
-      roundedRectRadii = { xRadius = 12, yRadius = 12 },
-      fillColor = dark and { hex = "#1F3A27", alpha = 0.96 } or { hex = "#E6F4E9", alpha = 0.96 },
+      roundedRectRadii = { xRadius = T("look.cornerRadius"), yRadius = T("look.cornerRadius") },
+      fillColor = dark and { hex = "#1F3A27", alpha = T("look.fillOpacity") } or { hex = "#E6F4E9", alpha = T("look.fillOpacity") },
       strokeColor = dark and { hex = "#3E8B55", alpha = 0.8 } or { hex = "#5DB36F", alpha = 0.7 },
-      strokeWidth = 1.5 },
+      strokeWidth = T("look.borderWidth") },
     { type = "text", text = code, frame = { x = 14, y = 6, w = w - 28, h = 24 },
-      textSize = 19, textFont = "Menlo-Bold",
+      textSize = T("look.codeSize"), textFont = "Menlo-Bold",
       textColor = dark and { hex = "#BFE6C8" } or { hex = "#1E4D2B" } },
     { type = "text", text = "Copied from " .. source .. "  ·  ⌘V to paste",
-      frame = { x = 14, y = 31, w = w - 28, h = 16 }, textSize = 10.5,
+      frame = { x = 14, y = 31, w = w - 28, h = 16 }, textSize = T("look.subtitleSize"),
       textColor = dark and { hex = "#9CC9A7", alpha = 0.9 } or { hex = "#3F6B4B", alpha = 0.9 } }
   )
   c:mouseCallback(function() hidePill() end)

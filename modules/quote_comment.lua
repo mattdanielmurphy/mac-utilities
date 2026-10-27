@@ -47,6 +47,9 @@ local T = require("modules.tweaks").open{
   app = "Quote comments (⌥R)",
   file = require("modules.tweaks").dir .. "/quote_comment.json",
   knobs = {
+    ["look.queueBorderWidth"] = { 2, min = 0.5, max = 5, step = 0.5, note = "Thickness of the queue button outline in points" },
+    ["look.sendBorderWhite"] = { 0.55, min = 0, max = 1, step = 0.05, note = "Brightness of the Send all button border (0 black, 1 white)" },
+    ["look.sendTextWhite"] = { 0.15, min = 0, max = 1, step = 0.05, note = "Brightness of the Send all button label (0 black, 1 white)" },
     ["bar.right"]    = { 24, min = 0, max = 400, step = 2, note = "Bar's distance from Claude's right edge (px)" },
     ["bar.bottom"]   = { 130, min = 0, max = 600, step = 2, note = "Bar's distance from Claude's bottom edge (px)" },
     ["bar.height"]   = { 26, min = 18, max = 44, step = 1, note = "Bar height (px)" },
@@ -601,17 +604,17 @@ updateBadge = function(hidden)
     -- Queue: the default (Return) while a quote + comment is in the box
     { id = "queue", type = "rectangle", action = "fill", fillColor = { white = 1, alpha = queueAlpha },
       frame = { x = x2, y = 0, w = QUEUE_W, h = h }, roundedRectRadii = r, trackMouseUp = true },
-    { type = "rectangle", action = "stroke", strokeColor = { hex = accent, alpha = queueAlpha }, strokeWidth = 2,
+    { type = "rectangle", action = "stroke", strokeColor = { hex = accent, alpha = queueAlpha }, strokeWidth = T("look.queueBorderWidth"),
       frame = { x = x2 + 1, y = 1, w = QUEUE_W - 2, h = h - 2 }, roundedRectRadii = r },
     { type = "text", frame = { x = x2, y = ty, w = QUEUE_W, h = h },
       text = label("Queue ⏎", { hex = accent, alpha = pending and 1 or queueAlpha }) },
     -- Send all: ⌘Return
     { id = "send", type = "rectangle", action = "fill", fillColor = { white = 1, alpha = alpha },
       frame = { x = x3, y = 0, w = SEND_W, h = h }, roundedRectRadii = r, trackMouseUp = true },
-    { type = "rectangle", action = "stroke", strokeColor = { white = 0.55, alpha = alpha }, strokeWidth = 1,
+    { type = "rectangle", action = "stroke", strokeColor = { white = T("look.sendBorderWhite"), alpha = alpha }, strokeWidth = 1,
       frame = { x = x3 + 0.5, y = 0.5, w = SEND_W - 1, h = h - 1 }, roundedRectRadii = r },
     { type = "text", frame = { x = x3, y = ty, w = SEND_W, h = h },
-      text = label(pending and "Send all ⌘⏎" or "Send all ⏎", { white = 0.15 }) },
+      text = label(pending and "Send all ⌘⏎" or "Send all ⏎", { white = T("look.sendTextWhite") }) },
   } do els[#els + 1] = el end
   c:replaceElements(els)
   if hidden then return c end

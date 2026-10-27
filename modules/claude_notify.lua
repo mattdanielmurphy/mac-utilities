@@ -32,8 +32,6 @@ local AIOS = os.getenv("HOME") .. "/projects/ai-os"
 local INBOX = hs.fs.attributes(AIOS, "mode") == "directory" and (AIOS .. "/tmp/notify")
   or (os.getenv("HOME") .. "/Library/Application Support/MDMA/notify")
 local SHOWN = INBOX .. "/shown"
-local VISIBLE_SECONDS = 20      -- seconds of Matt being active before a toast fades
-local IDLE_AFTER = 30           -- no input for this long = "away", countdown pauses
 local MAX_SLOTS = 6
 local SLOT_H, CHIP_H = 92, 80
 local MIN_W, MAX_W = 340, 620
@@ -42,6 +40,16 @@ local T = hs and require("modules.tweaks").open{
   app = "Claude notification chips",
   file = require("modules.tweaks").dir .. "/claude_notify.json",
   knobs = {
+    ["timing.visibleSeconds"] = { 20, min = 3, max = 60, step = 1, note = "Seconds of activity before a toast fades" },
+    ["timing.idleAfter"] = { 30, min = 5, max = 120, step = 5, note = "Seconds without input before you count as away" },
+    ["look.pillAlpha"] = { 0.30, min = 0.05, max = 1, step = 0.05, note = "Opacity of action pill fill, 0 to 1" },
+    ["timing.nextDelay"] = { 0.3, min = 0, max = 2, step = 0.05, note = "Seconds before the next queued toast appears" },
+    ["look.titleSize"] = { 19, min = 12, max = 28, step = 1, note = "Title font size in points" },
+    ["look.bodySize"] = { 15, min = 10, max = 24, step = 1, note = "Body font size in points" },
+    ["look.cornerRadius"] = { 16, min = 0, max = 32, step = 1, note = "Corner radius of the toast in pixels" },
+    ["look.rimWidth"] = { 1.5, min = 0, max = 4, step = 0.5, note = "Border thickness of the toast in pixels" },
+    ["look.pillTextSize"] = { 13, min = 9, max = 20, step = 1, note = "Action pill font size in points" },
+    ["look.pillRadius"] = { 8, min = 0, max = 14, step = 1, note = "Corner radius of action pills in pixels" },
     ["chips.maxLaptop"] = { 3, min = 1, max = 6, step = 1,
       note = "Most chips stacked at once when only the laptop screen is connected (hud_slots.json reserves room for 3; a 4th reaches the piano card); extras wait in the queue" },
   },
@@ -75,7 +83,7 @@ local function palette(kind)
   local set = TINTS[hs.host.interfaceStyle() == "Dark" and "dark" or "light"]
   local t = set[kind] or set.done
   return { bg = { hex = t.bg, alpha = 1 }, rim = { hex = t.rim, alpha = 1 },
-           title = { hex = t.text }, body = { hex = t.text }, pill = { hex = t.rim, alpha = 0.30 },
+           title = { hex = t.text }, body = { hex = t.text }, pill = { hex = t.rim, alpha = T("look.pillAlpha") },
            text = { hex = t.text } }
 end
 
@@ -102,7 +110,7 @@ local function dismiss(i, openUrl)
   slots[i] = nil
   if openUrl and t.url then require("modules.claude_links").open(t.url) end
   t.canvas:delete(0.25)
-  if #queue > 0 then hs.timer.doAfter(0.3, showNext) end
+  if #queue > 0 then hs.timer.doAfter(T("timing.nextDelay"), showNext) end
 end
 
 local function icon(kind, col)
@@ -136,8 +144,8 @@ local function draw(i, msg)
   local title = tostring(msg.title or "Claude finished")
   local body = msg.body and tostring(msg.body) or nil
   local clip = { lineBreak = "truncateTail" }
-  local titleStyle = { font = { name = ".AppleSystemUIFontDemi", size = 19 }, color = p.title, paragraphStyle = clip }
-  local bodyStyle = { font = { name = ".AppleSystemUIFont", size = 15 }, color = p.body, paragraphStyle = clip }
+  local titleStyle = { font = { name = ".AppleSystemUIFontDemi", size = T("look.titleSize") }, color = p.title, paragraphStyle = clip }
+  local bodyStyle = { font = { name = ".AppleSystemUIFont", size = T("look.bodySize") }, color = p.body, paragraphStyle = clip }
 
   -- Width hugs the text; the chip is right-anchored so it only grows leftward.
   local tw = hs.drawing.getTextDrawingSize(title, titleStyle).w
@@ -154,9 +162,9 @@ local function draw(i, msg)
   c:appendElements(
     -- Inset by half the stroke so the canvas edge doesn't clip it (clipped strokes
     -- look thick at the corners).
-    { type = "rectangle", action = "strokeAndFill", roundedRectRadii = { xRadius = 16, yRadius = 16 },
+    { type = "rectangle", action = "strokeAndFill", roundedRectRadii = { xRadius = T("look.cornerRadius"), yRadius = T("look.cornerRadius") },
       frame = { x = 0.5, y = 0.5, w = w - 1, h = h - 1 },
-      fillColor = p.bg, strokeColor = p.rim, strokeWidth = 1.5 }
+      fillColor = p.bg, strokeColor = p.rim, strokeWidth = T("look.rimWidth") }
   )
   for _, e in ipairs(icon(kind, p.text)) do c:appendElements(e) end
   c:appendElements(
@@ -186,7 +194,7 @@ local function draw(i, msg)
   local actions = {}
   if msg.url then actions[#actions + 1] = { id = "open", label = "Open" } end
   actions[#actions + 1] = { id = "snooze", label = "Snooze 10m" }
-  local pillStyle = { font = { name = ".AppleSystemUIFontMedium", size = 13 }, color = p.text,
+  local pillStyle = { font = { name = ".AppleSystemUIFontMedium", size = T("look.pillTextSize") }, color = p.text,
                       paragraphStyle = { alignment = "center" } }
   local PILL_H, PILL_GAP, PILL_PAD = 28, 6, 12
   local x = cx - 14 - 8
@@ -197,7 +205,7 @@ local function draw(i, msg)
     x = x - pw
     local y = math.floor(cy - PILL_H / 2)
     c:appendElements(
-      { id = a.id, type = "rectangle", action = "skip", roundedRectRadii = { xRadius = 8, yRadius = 8 },
+      { id = a.id, type = "rectangle", action = "skip", roundedRectRadii = { xRadius = T("look.pillRadius"), yRadius = T("look.pillRadius") },
         frame = { x = x, y = y, w = pw, h = PILL_H }, fillColor = p.pill, strokeColor = p.rim,
         strokeWidth = 1, trackMouseUp = true },
       { type = "text", action = "skip", text = hs.styledtext.new(a.label, pillStyle),
@@ -240,7 +248,7 @@ local function draw(i, msg)
   c:alpha(1)
   c:show()
 
-  slots[i] = { canvas = c, url = msg.url, left = tonumber(msg.seconds) or VISIBLE_SECONDS }
+  slots[i] = { canvas = c, url = msg.url, left = tonumber(msg.seconds) or T("timing.visibleSeconds") }
 
   local sound = msg.sound
   if sound == nil then sound = DEFAULT_SOUND end
@@ -303,7 +311,7 @@ end
 
 -- Countdown runs only while Matt is at the keyboard/mouse.
 local function tick()
-  if hs.host.idleTime() >= IDLE_AFTER then return end
+  if hs.host.idleTime() >= T("timing.idleAfter") then return end
   for i = 1, MAX_SLOTS do
     local t = slots[i]
     if t and not t.hover then

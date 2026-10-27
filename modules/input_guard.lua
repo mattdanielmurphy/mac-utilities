@@ -10,6 +10,18 @@
 -- key attempts, or the module is toggled off/on from the Hammerspoon menu.
 -- The callback only reads event properties and counts; no AX or IPC work.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["breaker.returnMax"] = { 4, min = 1, max = 15, step = 1, note = "Scripted Returns allowed per window before the breaker trips" },
+  ["breaker.returnWindow"] = { 20, min = 5, max = 120, step = 5, note = "Seconds over which scripted Returns are counted" },
+  ["breaker.charMax"] = { 300, min = 100, max = 1000, step = 25, note = "Scripted characters allowed per window before the breaker trips" },
+  ["breaker.charWindow"] = { 10, min = 3, max = 60, step = 1, note = "Seconds over which scripted characters are counted" },
+  ["breaker.cooldown"] = { 300, min = 30, max = 1800, step = 30, note = "Seconds of quiet before the breaker resets itself" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Runaway typing guard (scripted keys)",
+  file = require("modules.tweaks").dir .. "/input_guard.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "input_guard",
   name = "Runaway typing guard (scripted keys)",
@@ -20,11 +32,11 @@ _G.activeWatchers = _G.activeWatchers or {}
 local activeWatchers = _G.activeWatchers
 
 local CFG = {
-  RETURN_MAX = 4,      -- scripted Returns allowed per window
-  RETURN_WINDOW = 20,  -- seconds
-  CHAR_MAX = 300,      -- scripted characters allowed per window
-  CHAR_WINDOW = 10,    -- seconds
-  COOLDOWN = 300,      -- seconds of quiet before the breaker resets itself
+  RETURN_MAX = T("breaker.returnMax"),      -- scripted Returns allowed per window
+  RETURN_WINDOW = T("breaker.returnWindow"),  -- seconds
+  CHAR_MAX = T("breaker.charMax"),      -- scripted characters allowed per window
+  CHAR_WINDOW = T("breaker.charWindow"),    -- seconds
+  COOLDOWN = T("breaker.cooldown"),      -- seconds of quiet before the breaker resets itself
 }
 M.CFG = CFG
 

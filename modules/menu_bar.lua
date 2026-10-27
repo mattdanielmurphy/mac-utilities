@@ -1,3 +1,13 @@
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["look.menuFontSize"] = { 14, min = 10, max = 20, step = 1, note = "Menu item font size in points" },
+  ["look.shortcutTabStop"] = { 270, min = 150, max = 400, step = 5, note = "Points from left edge where shortcut text right-aligns" },
+  ["timing.menuCloseDelay"] = { 0.15, min = 0, max = 0.5, step = 0.01, note = "Seconds to wait after the menu closes before running the action" },
+}
+local TK = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Menu bar",
+  file = require("modules.tweaks").dir .. "/menu_bar.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 _G.activeWatchers = _G.activeWatchers or {}
 local ModuleManager = require("modules.module_manager")
 local brand = require("modules.brand")
@@ -36,8 +46,8 @@ end
 local function withKey(text, key)
     if not key then return text end
     local ok, styled = pcall(function()
-        local font = { name = ".AppleSystemUIFont", size = 14 }
-        local para = { tabStops = { { location = 270, tabStopType = "right" } } }
+        local font = { name = ".AppleSystemUIFont", size = TK("look.menuFontSize") }
+        local para = { tabStops = { { location = TK("look.shortcutTabStop"), tabStopType = "right" } } }
         return hs.styledtext.new(text .. "\t", { font = font, paragraphStyle = para })
             .. hs.styledtext.new(key, { font = font, paragraphStyle = para,
                 color = { list = "System", name = "secondaryLabelColor" } })
@@ -62,7 +72,7 @@ local function useModule(id, path, fn)
         end
         -- Run after the menu has finished closing: opening a window (chooser,
         -- webview) from inside the menu's own callback can fault.
-        hs.timer.doAfter(0.15, function()
+        hs.timer.doAfter(TK("timing.menuCloseDelay"), function()
             local ran, err = pcall(fn, mod)
             if not ran then
                 print("⚠️ menu: " .. id .. " failed: " .. tostring(err))

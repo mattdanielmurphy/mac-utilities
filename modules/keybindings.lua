@@ -1,3 +1,15 @@
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["alert.fillAlpha"] = { 0.75, min = 0.2, max = 1, step = 0.05, note = "Alert background opacity (0-1)" },
+  ["alert.textAlpha"] = { 0.85, min = 0.3, max = 1, step = 0.05, note = "Alert text opacity (0-1)" },
+  ["alert.radius"] = { 4, min = 0, max = 20, step = 1, note = "Alert corner radius in points" },
+  ["alert.textSize"] = { 12, min = 8, max = 24, step = 1, note = "Alert text size in points" },
+  ["alert.padding"] = { 8, min = 0, max = 24, step = 1, note = "Padding inside the alert in points" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "CloudMounter Upgrade Popup Guard",
+  file = require("modules.tweaks").dir .. "/keybindings.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "cloud_mounter_guard",
   name = "CloudMounter Upgrade Popup Guard"
@@ -21,12 +33,12 @@ function M.start()
   local function notifySubtle(message, duration)
     local style = {
       strokeColor = { white = 0, alpha = 0 },
-      fillColor = { white = 0, alpha = 0.75 },
-      textColor = { white = 1, alpha = 0.85 },
-      radius = 4,
-      textSize = 12,
+      fillColor = { white = 0, alpha = T("alert.fillAlpha") },
+      textColor = { white = 1, alpha = T("alert.textAlpha") },
+      radius = T("alert.radius"),
+      textSize = T("alert.textSize"),
       atScreenEdge = 2, -- Top-right corner
-      padding = 8
+      padding = T("alert.padding")
     }
     hs.alert.show(message, style, duration or 1.5)
   end

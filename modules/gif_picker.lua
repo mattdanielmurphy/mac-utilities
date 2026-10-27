@@ -8,6 +8,15 @@
 -- Click a GIF to copy it (pastes animated into Messages, Slack, Discord...). Esc closes.
 -- A standard window: move, resize, close; its frame is remembered.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["window.width"] = { 760, min = 400, max = 1400, step = 10, note = "Default window width in pixels" },
+  ["window.height"] = { 620, min = 300, max = 1000, step = 10, note = "Default window height in pixels" },
+}
+local TK = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "GIF Picker (⌃⌥⌘G)",
+  file = require("modules.tweaks").dir .. "/gif_picker.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "gif_picker",
   name = "GIF Picker (⌃⌥⌘G)",
@@ -354,7 +363,7 @@ local function open()
     return
   end
   local s = hs.screen.mainScreen():frame()
-  local frame = hs.settings.get(FRAME_KEY) or { x = s.x + (s.w - 760) / 2, y = s.y + 80, w = 760, h = 620 }
+  local frame = hs.settings.get(FRAME_KEY) or { x = s.x + (s.w - 760) / 2, y = s.y + 80, w = TK("window.width"), h = TK("window.height") }
   local uc = hs.webview.usercontent.new("gifs")
   uc:setCallback(onMessage)
   wv = hs.webview.new(frame, { developerExtrasEnabled = false }, uc)

@@ -6,6 +6,14 @@
 -- range (modules/wifi_home.lua). Wi-Fi is often still joining right after wake, so an
 -- unknown network is re-checked for a few seconds; still unknown → mute (the safe side).
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["timing.muteThresholdMinutes"] = { 10 * 60, min = 60, max = 3600, step = 30, note = "Seconds asleep or locked before wake auto-mutes" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Mute Audio on Sleep & Wake (>10m)",
+  file = require("modules.tweaks").dir .. "/wake_mute.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "wake_mute",
   name = "Mute Audio on Sleep & Wake (>10m)"
@@ -15,7 +23,6 @@ _G.activeWatchers = _G.activeWatchers or {}
 local activeWatchers = _G.activeWatchers
 
 -- Mute threshold: 10 minutes
-local MUTE_THRESHOLD_SECONDS = 10 * 60
 
 local sleepOrLockTime = nil
 
@@ -80,7 +87,7 @@ function M.start()
       if sleepOrLockTime then
         local elapsed = os.time() - sleepOrLockTime
 
-        if elapsed >= MUTE_THRESHOLD_SECONDS then
+        if elapsed >= T("timing.muteThresholdMinutes") then
           local mins = math.floor(elapsed / 60)
           muteUnlessHome(string.format("Asleep/Locked for %dm", mins))
           sleepOrLockTime = nil

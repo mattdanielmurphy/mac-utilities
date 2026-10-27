@@ -13,6 +13,16 @@
 -- reach an event tap, so they still skip instantly. M.log keeps the last 20
 -- media-key presses (any media key) for checking which buttons arrive here.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["fade.seconds"] = { 0.4, min = 0.05, max = 3, step = 0.05, note = "Seconds the fade-out takes" },
+  ["fallback.fadeSteps"] = { 12, min = 3, max = 40, step = 1, note = "Number of volume steps in the system-volume fade" },
+  ["fallback.restoreDelay"] = { 0.4, min = 0, max = 2, step = 0.05, note = "Seconds to wait after skipping before restoring system volume" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Fade Out Before Skipping Tracks",
+  file = require("modules.tweaks").dir .. "/fade_skip.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "fade_skip",
   name = "Fade Out Before Skipping Tracks",
@@ -22,9 +32,9 @@ _G.activeWatchers = _G.activeWatchers or {}
 local activeWatchers = _G.activeWatchers
 
 local CFG = {
-  fadeSecs = 0.4,      -- length of the fade-out
-  sysSteps = 12,       -- steps for the system-volume fallback fade
-  sysRestoreDelay = 0.4, -- system fallback: wait after skipping before turning the
+  fadeSecs = T("fade.seconds"),      -- length of the fade-out
+  sysSteps = T("fallback.fadeSteps"),       -- steps for the system-volume fallback fade
+  sysRestoreDelay = T("fallback.restoreDelay"), -- system fallback: wait after skipping before turning the
                          -- volume back up (browsers take a moment to drop the old track)
 }
 

@@ -9,6 +9,15 @@
 --   wv:frame(layout.rect("piano_hud", w, h))     -- actual size, anchored at the slot's corner
 --   layout.report()                              -- overlap check, as text
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["layout.fallbackDx"] = { 24, min = 0, max = 100, step = 2, note = "Pixels from the screen edge for HUDs with no reserved slot" },
+  ["layout.fallbackDy"] = { 24, min = 0, max = 100, step = 2, note = "Pixels from the screen bottom for HUDs with no reserved slot" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Hud layout",
+  file = require("modules.tweaks").dir .. "/hud_layout.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {}
 
 M.FILE = os.getenv("HOME") .. "/.hammerspoon/hud_slots.json"
@@ -111,7 +120,7 @@ function M.rect(id, w, h)
   local slot = M.slot(id)
   if not slot then
     print("⚠️ hud_layout: no slot for " .. tostring(id))
-    slot = { corner = "bottomRight", dx = 24, dy = 24, w = w or 200, h = h or 100 }
+    slot = { corner = "bottomRight", dx = T("layout.fallbackDx"), dy = T("layout.fallbackDy"), w = w or 200, h = h or 100 }
   end
   local r = M.place(M.screen(id):frame(), slot, w, h)
   return hs.geometry.rect(r.x, r.y, r.w, r.h)

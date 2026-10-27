@@ -101,6 +101,8 @@ function M.start()
     app = "TV Re-sync",
     file = tweaks.dir .. "/tv_resync.json",
     knobs = {
+      ["timing.pollSeconds"] = { 2, min = 0.5, max = 10, step = 0.5, note = "Seconds between idle/screen state checks" },
+      ["timing.wakeDelaySeconds"] = { 5, min = 1, max = 20, step = 1, note = "Seconds to wait after wake before checking screens" },
       ["trigger.onDisconnect"] = { true, note = "Re-sync while the display is missing (lid shut)" },
       ["trigger.onFirstTouch"] = { true, note = "Re-sync on the first touch after a long idle (lid shut)" },
       ["trigger.onWake"] = { true, note = "Re-sync once after the Mac wakes (lid shut)" },
@@ -111,11 +113,11 @@ function M.start()
     },
   }
   state = { prevIdle = hs.host.idleTime() }
-  W.tvResyncPoll = hs.timer.doEvery(2, poll)
+  W.tvResyncPoll = hs.timer.doEvery(T("timing.pollSeconds"), poll)
   W.tvResyncHotkey = hs.hotkey.bind({ "ctrl", "alt" }, "R", function() M.resync("hotkey") end)
   W.tvResyncSleep = hs.caffeinate.watcher.new(function(event)
     if event ~= hs.caffeinate.watcher.systemDidWake or not T("trigger.onWake") then return end
-    W.tvResyncAfterWake = hs.timer.doAfter(5, function()
+    W.tvResyncAfterWake = hs.timer.doAfter(T("timing.wakeDelaySeconds"), function()
       local lid, shown = screens()
       if lid and shown and hs.timer.secondsSinceEpoch() - (state.lastResync or 0) > 30 then
         M.resync("after wake, " .. shown)

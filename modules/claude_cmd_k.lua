@@ -8,6 +8,15 @@
 -- re-trigger the handler (hs.hotkey disable/enable around keyStroke raced and
 -- looped, since the posted event arrives after the hotkey is re-enabled).
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["timing.paletteDelay"] = { 0.25, min = 0.05, max = 0.8, step = 0.01, note = "Seconds to wait for the palette to open before typing" },
+  ["timing.enterDelay"] = { 0.15, min = 0.05, max = 0.6, step = 0.01, note = "Seconds to wait for the typed filter to register before pressing Enter" },
+}
+local TK = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Claude: Cmd-K → project: filter",
+  file = require("modules.tweaks").dir .. "/claude_cmd_k.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "claude_cmd_k",
   name = "Claude: Cmd-K → project: filter",
@@ -19,8 +28,6 @@ local activeWatchers = _G.activeWatchers
 local claudeBundleID = "com.anthropic.claudefordesktop"
 local T
 
-local PALETTE_DELAY = 0.25 -- wait for the palette to open before typing
-local ENTER_DELAY = 0.15   -- wait for the typed filter to register
 local MARK = 0x434B4B      -- "CKK": tags events this module posts
 
 local types = hs.eventtap.event.types
@@ -41,9 +48,9 @@ end
 
 local function openProjectFiltered()
   sendRealCmdK()
-  hs.timer.doAfter(PALETTE_DELAY, function()
+  hs.timer.doAfter(TK("timing.paletteDelay"), function()
     hs.eventtap.keyStrokes(T("palette.filter"))
-    hs.timer.doAfter(ENTER_DELAY, function()
+    hs.timer.doAfter(TK("timing.enterDelay"), function()
       post({}, "return")
     end)
   end)

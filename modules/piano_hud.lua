@@ -16,6 +16,20 @@
 -- Virtual ports (IAC, QWERTY MIDI, anything Hammerspoon re-sends) are skipped so
 -- forwarded notes are never logged twice. Toggle it from the ⚙︎ menu.
 
+-- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
+local TWEAKS = {
+  ["timing.idleHide"] = { 60, min = 5, max = 300, step = 5, note = "Seconds without a note before the HUD fades out" },
+  ["fade.duration"] = { 0.4, min = 0.05, max = 2, step = 0.05, note = "Seconds for the HUD show/hide fade" },
+  ["timing.settleMs"] = { 80, min = 10, max = 400, step = 10, note = "Milliseconds a held shape must be stable to count as last chord" },
+  ["look.width"] = { 300, min = 200, max = 600, step = 10, note = "HUD width in pixels" },
+  ["look.height"] = { 150, min = 100, max = 400, step = 10, note = "HUD height in pixels" },
+  ["card.width"] = { 380, min = 260, max = 600, step = 10, note = "Info card width in pixels" },
+  ["card.gap"] = { 8, min = 0, max = 40, step = 1, note = "Pixels between the info card and the HUD" },
+}
+local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Piano Log & Chord HUD",
+  file = require("modules.tweaks").dir .. "/piano_hud.json", knobs = TWEAKS }
+  or function(k) return TWEAKS[k][1] end
+
 local M = {
   id = "piano_hud",
   name = "Piano Log & Chord HUD"
@@ -28,14 +42,14 @@ local layout = require("modules.hud_layout")
 -- ── Settings (edit these, the config auto-reloads) ─────────────────────────────
 local CFG = {
   LOG_DIR    = os.getenv("HOME") .. "/Documents/Piano Log",
-  IDLE_HIDE  = 60,       -- seconds without a note before the HUD fades out
+  IDLE_HIDE = T("timing.idleHide"),       -- seconds without a note before the HUD fades out
   FLUSH      = 2,        -- seconds between log file writes
-  FADE       = 0.4,      -- show/hide fade (seconds)
-  SETTLE_MS  = 80,       -- a held shape must be stable this long to become "last chord"
-  WIDTH      = 300,
-  HEIGHT     = 150,
-  CARD_WIDTH = 380,      -- info card above the HUD (right edges line up)
-  CARD_GAP   = 8,
+  FADE = T("fade.duration"),      -- show/hide fade (seconds)
+  SETTLE_MS = T("timing.settleMs"),       -- a held shape must be stable this long to become "last chord"
+  WIDTH = T("look.width"),
+  HEIGHT = T("look.height"),
+  CARD_WIDTH = T("card.width"),      -- info card above the HUD (right edges line up)
+  CARD_GAP = T("card.gap"),
   STUDY_KEYS = { 2, 10 },  -- D and B♭ major: listed first in the card, with a ★
   -- Device names containing any of these (case-insensitive) are not listened to.
   -- "Bluetooth" is the empty BLE driver entry; a paired keyboard shows under its own name.
