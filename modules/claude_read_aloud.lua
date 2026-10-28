@@ -270,6 +270,7 @@ end
 tryRead = function()
   local app = claude()
   if reading or not (pending and app and app:isFrontmost()) then return false end
+  if claudeDictating() then return false end -- never start reading over Matt's dictation
   local item, button, text = nextOnScreen()
   if not item then return false end
   os.remove(item.path) -- put back by watchReading if the press never takes
@@ -389,6 +390,8 @@ function M.interrupt()
 end
 
 function M.isPaused() return paused end
+-- True while Claude's own dictation is listening (eye_breaks waits for it).
+function M.isDictating() return claudeDictating() end
 function M.isPending() return pending end
 
 -- Matt typed or sent something: stop reading and drop that session's waiting replies

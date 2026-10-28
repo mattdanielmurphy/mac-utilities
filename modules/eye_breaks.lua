@@ -158,7 +158,7 @@ function M.showEyeReminder(secs)
   end)
 end
 
--- ── Deferral: wait for typing / read-aloud to finish ───────────────────────────
+-- ── Deferral: wait for typing / read-aloud / dictation to finish ───────────────────────────
 local lastKey = 0
 -- Swappable for tests.
 M._clock = function() return hs.timer.secondsSinceEpoch() end
@@ -166,12 +166,17 @@ M._readingAloud = function()
   local ok, ra = pcall(require, "modules.claude_read_aloud")
   return ok and ra.isReading and ra.isReading() or false
 end
+M._dictating = function()
+  local ok, ra = pcall(require, "modules.claude_read_aloud")
+  return ok and ra.isDictating and ra.isDictating() or false
+end
 
 -- Why the break should wait right now, or nil.
 function M.busyReason(now)
   now = now or M._clock()
   if now - lastKey < T("defer.typingQuiet") then return "typing" end
   if M._readingAloud() then return "reading aloud" end
+  if M._dictating() then return "dictating" end
   return nil
 end
 
