@@ -29,6 +29,7 @@ local T = tweaks.open{
     ["away.sound"] = { "Tink", note = "System sound when a reply lands while you're elsewhere (blank = none)" },
     ["away.volume"] = { 0.4, min = 0, max = 1, step = 0.05, note = "Volume of that sound" },
     ["start.poll"] = { 0.15, min = 0.05, max = 1, step = 0.05, note = "Seconds between checks for the Read aloud button after a reply ends" },
+    ["start.timeout"] = { 10, min = 3, max = 30, step = 1, note = "Seconds to wait for Claude's voice to start after a press before trying again" },
     ["start.window"] = { 4, min = 1, max = 15, step = 0.5, note = "Seconds of fast checking before slowing down" },
     ["return.delay"] = { 0.2, min = 0, max = 3, step = 0.1, note = "Seconds after switching back before reading starts" },
     ["dictate.after"] = { true, note = "Start dictation when reading ends" },
@@ -99,7 +100,13 @@ end
 local lastPrompt = nil -- Claude's prompt field, from the latest scan
 local QDIR = os.getenv("HOME") .. "/.hammerspoon/tmp/read_aloud_queue"
 
-local function log(msg) print("claude_read_aloud: " .. msg) end
+-- Every decision also goes to ~/.hammerspoon/tmp/read_aloud.log (the console clears on reload).
+local LOGFILE = os.getenv("HOME") .. "/.hammerspoon/tmp/read_aloud.log"
+local function log(msg)
+  print("claude_read_aloud: " .. msg)
+  local f = io.open(LOGFILE, "a")
+  if f then f:write(os.date("%Y-%m-%d %H:%M:%S  ") .. msg .. "\n"); f:close() end
+end
 
 -- Queue: files named <ms>-<n>-<session>.json, so a name sort is oldest first.
 local function queue()
@@ -181,7 +188,7 @@ local function startDictation()
   cc.withInput("read-aloud dictation", claudeDictate)
 end
 
-local tryRead
+local tryRead, startRetry
 
 -- Presses a Read aloud button, then hands keyboard focus straight back to the prompt with its
 -- draft and caret untouched, so Enter sends the reply instead of pausing the reading.
@@ -234,14 +241,26 @@ local function watchReading(button, item)
       end
       started = true; return
     end
-    if started or not ok or age > 4 then
+    if started or not ok or age > T("start.timeout") then
       poll:stop(); poll = nil; reading = nil
       if cutTimer then cutTimer:stop(); cutTimer = nil end
       unduck()
-      log(string.format("reading ended (started=%s age=%.1f)", tostring(started), age))
-      -- More replies waiting on screen? Read the next; dictation only after the last.
-      if #queue() > 0 then pending = true; hs.timer.doAfter(0.5, function() if not tryRead() then
-        if started then hs.timer.doAfter(T("dictate.delay"), startDictation) end end end)
+      log(string.format("reading ended (started=%s age=%.1f) %s", tostring(started), age, item.name or ""))
+      -- The press never took (button never turned to Pause): put the reply back for another try.
+      if not started then
+        local tries = (item.tries or 0) + 1
+        if tries < 3 then
+          local copy = { key = item.key, cut = item.cut, chars = item.chars, session = item.session, tries = tries }
+          hs.json.write(copy, item.path, false, true)
+          log("SKIPPED? never started; requeued (try " .. tries .. ") " .. item.name)
+        else
+          log("DROPPED after 3 tries: " .. item.name)
+        end
+      end
+      -- More replies waiting? Keep trying until they're on screen; dictation only after the last.
+      if #queue() > 0 then
+        pending = true
+        hs.timer.doAfter(0.5, function() if not tryRead() then startRetry() end end)
       elseif started then hs.timer.doAfter(T("dictate.delay"), startDictation) end
     end
   end)
@@ -253,7 +272,7 @@ tryRead = function()
   if reading or not (pending and app and app:isFrontmost()) then return false end
   local item, button, text = nextOnScreen()
   if not item then return false end
-  os.remove(item.path)
+  os.remove(item.path) -- put back by watchReading if the press never takes
   -- Two texts of one turn can share a bubble (one button): drop the others that match it too.
   for _, other in ipairs(queue()) do
     if other.key ~= "" and text:find(other.key, 1, true) then os.remove(other.path) end
@@ -267,7 +286,7 @@ tryRead = function()
 end
 
 -- While replies wait and Claude is in front, keep checking (he may switch threads to one).
-local function startRetry()
+startRetry = function()
   stopRetry()
   retry = hs.timer.doEvery(1.5, function()
     if not pending then stopRetry(); return end
@@ -281,6 +300,7 @@ end
 
 function M.replyDone()
   pending = true
+  log(string.format("turn ended: %d queued%s", #queue(), reading and " (behind the one playing)" or ""))
   if reading then return "queued" end -- the running read picks it up when it ends
   stopRetry()
   local app = claude()
@@ -374,6 +394,7 @@ function M.isPending() return pending end
 -- Matt typed or sent something: stop reading and drop that session's waiting replies
 -- (all of them when no session is given).
 function M.cancel(session)
+  log("cut off (typed, sent or dictated)" .. (session and (" in " .. session) or "") .. ": queue dropped")
   unduck()
   for _, i in ipairs(queue()) do
     if not session or i.session == session then os.remove(i.path) end
