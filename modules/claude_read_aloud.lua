@@ -41,7 +41,12 @@ local T = tweaks.open{
 
 local pending, reading, watcher, retry, poll, cutTimer, paused, resumeWatch = false, nil, nil, nil, nil, nil, false, nil
 -- Claude's own dictation (⌘D in the prompt); quote_comment watches whether its mic is on.
-local function claude() return hs.application.get("Claude") end
+-- The Claude app itself, by bundle id (a name lookup can match a helper or nothing useful).
+local function claude()
+  local a = hs.application.applicationsForBundleID("com.anthropic.claudefordesktop")[1]
+  if a and a.isFrontmost then return a end
+  return nil
+end
 local function claudeDictating()
   local ok, qc = pcall(require, "modules.quote_comment")
   return ok and type(qc) == "table" and qc.dictating and qc.dictating() or false
@@ -93,7 +98,6 @@ end
 
 local QDIR = os.getenv("HOME") .. "/.hammerspoon/tmp/read_aloud_queue"
 
-local function claude() return hs.application.get("Claude") end
 local function log(msg) print("claude_read_aloud: " .. msg) end
 
 -- Queue: files named <ms>-<n>-<session>.json, so a name sort is oldest first.
@@ -243,8 +247,11 @@ local function startRetry()
   stopRetry()
   retry = hs.timer.doEvery(1.5, function()
     if not pending then stopRetry(); return end
-    local app = claude()
-    if app and app:isFrontmost() then tryRead() end
+    local ok, err = pcall(function()
+      local app = claude()
+      if app and app:isFrontmost() then tryRead() end
+    end)
+    if not ok then log("retry error (kept going): " .. tostring(err)) end
   end)
 end
 
@@ -263,7 +270,9 @@ function M.replyDone()
   local t0 = hs.timer.secondsSinceEpoch()
   retry = hs.timer.doEvery(T("start.poll"), function()
     if not pending then stopRetry(); return end
-    if tryRead() then return end
+    local ok, read = pcall(tryRead)
+    if not ok then log("poll error (kept going): " .. tostring(read)) end
+    if ok and read then return end
     if hs.timer.secondsSinceEpoch() - t0 > T("start.window") then startRetry() end
   end)
   return "ok"
@@ -365,6 +374,7 @@ function M.start()
   hs.fs.mkdir(os.getenv("HOME") .. "/.hammerspoon/tmp")
   hs.fs.mkdir(QDIR)
   pending = #queue() > 0
+  if pending then hs.timer.doAfter(1, function() startRetry() end) end -- replies left from before a reload
   watcher = hs.application.watcher.new(function(name, event)
     if name == "Claude" and event == hs.application.watcher.activated and pending then
       hs.timer.doAfter(T("return.delay"), tryRead)
