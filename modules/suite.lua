@@ -45,6 +45,7 @@ M.SHAREABLE = {
   "modules.claude_notify",
   "modules.claude_cmd_k",
   "modules.quote_comment",
+  "modules.claude_read_aloud", -- inert until the slub-mods read-aloud mod queues replies
 }
 
 -- Modules that only make sense on Matt's Mac, with the reason. Every module
@@ -64,7 +65,6 @@ M.MATT_ONLY = {
   ["modules.call_transcript"] = "needs Matt's call-transcript tool and Audio Hijack setup",
   ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",
   ["modules.thread_queue"] = "reads ai-os thread queue files",
-  ["modules.claude_read_aloud"] = "needs the read-aloud Claude mod; ships with Slub Utils later",
 }
 
 local shareableSet = {}

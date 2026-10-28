@@ -70,3 +70,7 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 
 ### modules.quote_comment
 **Quote + Dictate for Claude (⌥R).** Highlight text anywhere and press ⌥R: it lands in Claude's message box as a quote and dictation starts. Talk, press Return, and it queues; repeat for more quotes. Plain Return in an empty box sends the whole batch as one message. ⌥⇧R queues a quote with no comment.
+
+
+### modules.claude_read_aloud
+**Read Aloud for Claude.** Each reply in your Coordinator thread is read aloud by Claude's own voice, then dictation starts so you can answer by talking. Stops when you type. Needs the `read-aloud` mod from slub-mods (see slub-hq `setup/INSTALL.md`); does nothing without it. Voice speed and music ducking are in `~/.hammerspoon/tweaks/claude_read_aloud.json`.
