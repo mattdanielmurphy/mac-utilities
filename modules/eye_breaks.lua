@@ -81,6 +81,7 @@ local T = require("modules.tweaks").open{
     ["wash.darkAlpha"]  = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in dark mode" },
     ["text.size"]      = { 40, min = 18, max = 80, step = 1, note = "Prompt size (pt)" },
     ["defer.typingQuiet"] = { 4, min = 1, max = 30, step = 1, note = "Hold the eye break until no key pressed for this many seconds" },
+    ["defer.dictateQuiet"] = { 6, min = 1, max = 30, step = 1, note = "Hold the eye break until Claude dictation has been off this many seconds (no cap)" },
     ["defer.max"]      = { 120, min = 10, max = 600, step = 10, note = "Longest the eye break waits for typing / read-aloud before showing anyway" },
     ["snooze.after"]   = { 60, min = 10, max = 600, step = 5, note = "Seconds before an early-dismissed eye break comes back" },
   },
@@ -160,6 +161,7 @@ end
 
 -- ── Deferral: wait for typing / read-aloud / dictation to finish ───────────────────────────
 local lastKey = 0
+local lastDictation = -1e9
 -- Swappable for tests.
 M._clock = function() return hs.timer.secondsSinceEpoch() end
 M._readingAloud = function()
@@ -176,7 +178,10 @@ function M.busyReason(now)
   now = now or M._clock()
   if now - lastKey < T("defer.typingQuiet") then return "typing" end
   if M._readingAloud() then return "reading aloud" end
-  if M._dictating() then return "dictating" end
+  -- Dictation: hold while the mic is on and for a few seconds after (the mic flickers off
+  -- between phrases), with no cap; the eye break never cuts into dictation.
+  if M._dictating() then lastDictation = now end
+  if now - lastDictation < T("defer.dictateQuiet") then return "dictating" end
   return nil
 end
 
@@ -187,7 +192,7 @@ function M.requestEye(now)
   pendingSince = pendingSince or now
   if activeWatchers.eyeWashCanvases then pendingSince = nil; return "shown" end
   local busy = M.busyReason(now)
-  if busy and now - pendingSince < T("defer.max") then
+  if busy == "dictating" or (busy and now - pendingSince < T("defer.max")) then
     if not activeWatchers.eyeDeferTimer then
       activeWatchers.eyeDeferTimer = hs.timer.doEvery(1, function() M.requestEye() end)
     end
