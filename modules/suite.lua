@@ -64,6 +64,7 @@ M.MATT_ONLY = {
   ["modules.call_transcript"] = "needs Matt's call-transcript tool and Audio Hijack setup",
   ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",
   ["modules.thread_queue"] = "reads ai-os thread queue files",
+  ["modules.claude_read_aloud"] = "needs the read-aloud Claude mod; ships with Slub Utils later",
 }
 
 local shareableSet = {}

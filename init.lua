@@ -166,6 +166,7 @@ safeRegister("modules.wifi_home") -- on the iPhone hotspot with home Wi-Fi in ra
 safeRegister("modules.call_transcript") -- FaceTime call starts/ends → call-transcript start/stop
 safeRegister("modules.tv_resync") -- ⌃⌥R: TV stuck on "no signal" with the lid shut → re-sync it
 safeRegister("modules.tweaks_panel") -- ⌃⌥⌘T: sliders for every app's tweaks.json
+safeRegister("modules.claude_read_aloud") -- Coordinator reply → presses Claude's own Read aloud, then dictation
 safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies
 
 

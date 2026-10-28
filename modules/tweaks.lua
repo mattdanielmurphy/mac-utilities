@@ -185,6 +185,14 @@ function M.readDoc(path)
   return doc, text
 end
 
+-- Sets one knob's value in a tweaks file (for a module's own on-screen toggle).
+function M.setValue(path, key, value)
+  local doc = M.readDoc(path)
+  if not (doc and type(doc.tweaks) == "table" and doc.tweaks[key]) then return false end
+  doc.tweaks[key].value = value
+  return M.writeFile(path, M.encode(doc))
+end
+
 -- Registry: { "apps": { "<app>": "<absolute path to its tweaks.json>" } }
 function M.register(app, file)
   local doc = M.readDoc(M.registry) or {}

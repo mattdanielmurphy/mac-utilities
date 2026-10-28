@@ -168,7 +168,18 @@ local function drawGlow()
   end)
 end
 
+-- Tell Karabiner the banner is up, so a held Caps Lock sends a held Escape
+-- (it only does that in Glass TV and while this banner shows).
+local KCLI = "/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
+local bannerFlag = nil
+local function setBannerFlag(on)
+  if bannerFlag == on then return end
+  bannerFlag = on
+  hs.task.new(KCLI, nil, { "--set-variables", string.format('{"claude_banner":%d}', on and 1 or 0) }):start()
+end
+
 local function hideBanner()
+  setBannerFlag(false)
   hideGlow()
   if activeWatchers.claudeControlCanvas then
     activeWatchers.claudeControlCanvas:delete()
@@ -186,6 +197,7 @@ local function hideBanner()
 end
 
 local advance  -- defined below
+
 
 local function disarmStop()
   if activeWatchers.claudeControlStopTap then
@@ -547,6 +559,7 @@ local function drawBanner()
   if not lightMode then drawGlow() end
   c:show()
   activeWatchers.claudeControlCanvas = c
+  setBannerFlag(true)
 end
 
 local function begin(reason, seconds, light)

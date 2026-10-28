@@ -80,6 +80,9 @@ local T = require("modules.tweaks").open{
     ["wash.lightAlpha"] = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in light mode" },
     ["wash.darkAlpha"]  = { 0.9, min = 0.3, max = 1, step = 0.05, note = "Wash opacity in dark mode" },
     ["text.size"]      = { 40, min = 18, max = 80, step = 1, note = "Prompt size (pt)" },
+    ["defer.typingQuiet"] = { 4, min = 1, max = 30, step = 1, note = "Hold the eye break until no key pressed for this many seconds" },
+    ["defer.max"]      = { 120, min = 10, max = 600, step = 10, note = "Longest the eye break waits for typing / read-aloud before showing anyway" },
+    ["snooze.after"]   = { 60, min = 10, max = 600, step = 5, note = "Seconds before an early-dismissed eye break comes back" },
   },
 }
 
@@ -93,6 +96,9 @@ local function hex(h, alpha)
   return { red = tonumber(r, 16) / 255, green = tonumber(g, 16) / 255, blue = tonumber(b, 16) / 255, alpha = alpha or 1 }
 end
 
+-- Rest still owed from an early-dismissed eye break (nil = none).
+local owed = nil
+
 function M.dismissEyeWash(instant)
   if activeWatchers.eyeWashTimer then activeWatchers.eyeWashTimer:stop(); activeWatchers.eyeWashTimer = nil end
   if activeWatchers.eyeWashKey then activeWatchers.eyeWashKey:delete(); activeWatchers.eyeWashKey = nil end
@@ -104,8 +110,22 @@ function M.dismissEyeWash(instant)
   end
 end
 
-function M.showEyeReminder()
+-- Early dismiss = snooze: the break comes back after snooze.after with the rest still owed.
+local function snoozeEye(left)
+  M.dismissEyeWash()
+  owed = left
+  if activeWatchers.eyeSnoozeTimer then activeWatchers.eyeSnoozeTimer:stop() end
+  activeWatchers.eyeSnoozeTimer = hs.timer.doAfter(T("snooze.after"), function()
+    activeWatchers.eyeSnoozeTimer = nil
+    M.requestEye()
+  end)
+end
+M._snooze = snoozeEye
+
+function M.showEyeReminder(secs)
   M.dismissEyeWash(true)
+  secs = secs or owed or CFG.EYE_SHOW
+  owed = nil
   local dark = hs.host.interfaceStyle() == "Dark"
   local pal = dark and PALETTE.dark or PALETTE.light
   local alpha = dark and T("wash.darkAlpha") or T("wash.lightAlpha")
@@ -117,24 +137,65 @@ function M.showEyeReminder()
     c[1] = { type = "rectangle", action = "fill", fillColor = hex(pal.bg, alpha) }
     c[2] = { type = "text", text = "Look 20 feet away", textSize = T("text.size"), textColor = hex(pal.text),
              textAlignment = "center", frame = { x = "10%", y = "40%", w = "80%", h = "10%" } }
-    c[3] = { type = "text", text = tostring(CFG.EYE_SHOW) .. " s", textSize = T("eye.countdownTextSize"), textColor = hex(pal.text, 0.7),
+    c[3] = { type = "text", text = tostring(secs) .. " s", textSize = T("eye.countdownTextSize"), textColor = hex(pal.text, 0.7),
              textAlignment = "center", frame = { x = "10%", y = "52%", w = "80%", h = "6%" } }
-    c[4] = { type = "text", text = "Click or press Escape to skip", textSize = T("eye.skipHintTextSize"), textColor = hex(pal.text, 0.5),
+    c[4] = { type = "text", text = string.format("Click or Escape = snooze %d s (the rest comes back)", T("snooze.after")), textSize = T("eye.skipHintTextSize"), textColor = hex(pal.text, 0.5),
              textAlignment = "center", frame = { x = "10%", y = "90%", w = "80%", h = "4%" } }
-    c:mouseCallback(function() M.dismissEyeWash() end)
+    c:mouseCallback(function() snoozeEye(activeWatchers.eyeWashLeft) end)
     c:canvasMouseEvents(true, false, false, false)
     c:show(T("wash.fadeIn"))
     table.insert(canvases, c)
   end
   activeWatchers.eyeWashCanvases = canvases
-  activeWatchers.eyeWashKey = hs.hotkey.bind({}, "escape", function() M.dismissEyeWash() end)
-  local left = CFG.EYE_SHOW
+  activeWatchers.eyeWashLeft = secs
+  activeWatchers.eyeWashKey = hs.hotkey.bind({}, "escape", function() snoozeEye(activeWatchers.eyeWashLeft) end)
+  local left = secs
   activeWatchers.eyeWashTimer = hs.timer.doEvery(1, function()
     left = left - 1
+    activeWatchers.eyeWashLeft = left
     if left <= 0 then M.dismissEyeWash(); return end
     for _, c in ipairs(canvases) do c[3].text = tostring(left) .. " s" end
   end)
 end
+
+-- ── Deferral: wait for typing / read-aloud to finish ───────────────────────────
+local lastKey = 0
+-- Swappable for tests.
+M._clock = function() return hs.timer.secondsSinceEpoch() end
+M._readingAloud = function()
+  local ok, ra = pcall(require, "modules.claude_read_aloud")
+  return ok and ra.isReading and ra.isReading() or false
+end
+
+-- Why the break should wait right now, or nil.
+function M.busyReason(now)
+  now = now or M._clock()
+  if now - lastKey < T("defer.typingQuiet") then return "typing" end
+  if M._readingAloud() then return "reading aloud" end
+  return nil
+end
+
+-- Show the eye break once Matt is idle; never wait longer than defer.max.
+local pendingSince = nil
+function M.requestEye(now)
+  now = now or M._clock()
+  pendingSince = pendingSince or now
+  if activeWatchers.eyeWashCanvases then pendingSince = nil; return "shown" end
+  local busy = M.busyReason(now)
+  if busy and now - pendingSince < T("defer.max") then
+    if not activeWatchers.eyeDeferTimer then
+      activeWatchers.eyeDeferTimer = hs.timer.doEvery(1, function() M.requestEye() end)
+    end
+    return "deferred"
+  end
+  if activeWatchers.eyeDeferTimer then activeWatchers.eyeDeferTimer:stop(); activeWatchers.eyeDeferTimer = nil end
+  pendingSince = nil
+  M.showEyeReminder()
+  return "shown"
+end
+
+function M._noteKey(t) lastKey = t or M._clock() end
+function M._owed() return owed end
 
 function M.showHardNudge(activeSecs)
   local msg = string.format("🧍  %s at the screen. Time for a real break: stand up, walk, water.", fmtDuration(activeSecs))
@@ -227,7 +288,7 @@ function M.tick(now, idle)
 
   if (now - state.lastEye) >= CFG.EYE_INTERVAL then
     state.lastEye = now
-    M.showEyeReminder()
+    M.requestEye()
     return "eye"
   end
   return "ok"
@@ -250,6 +311,9 @@ end
 function M.start()
   M.stop()
   state = {}
+  -- Passive listener: only notes when a key was pressed, never blocks or posts input.
+  activeWatchers.eyeKeyTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function() lastKey = M._clock(); return false end)
+  activeWatchers.eyeKeyTap:start()
   activeWatchers.eyeBreaksTimer = hs.timer.doEvery(CFG.TICK, function()
     local ok, err = pcall(M.tick)
     if not ok then print("eye_breaks tick error: " .. tostring(err)) end
@@ -263,6 +327,10 @@ function M.stop()
     activeWatchers.eyeBreaksTimer = nil
   end
   M.dismissOverlay()
+  for _, k in ipairs({ "eyeDeferTimer", "eyeSnoozeTimer", "eyeKeyTap" }) do
+    if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
+  end
+  pendingSince = nil
 end
 
 return M
