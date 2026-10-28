@@ -209,6 +209,14 @@ local function watchReading(button, item)
   poll = hs.timer.doEvery(0.5, function()
     if reading ~= button then poll:stop(); poll = nil; return end
     if paused then return end -- interrupted for dictation: not finished
+    -- Matt started Claude's own dictation mid-reading: that's a cut-off, not an Interrupt.
+    -- Stop this message for good and drop what was queued before it; new replies still read.
+    if claudeDictating() then
+      log("cut off by Claude dictation")
+      poll:stop(); poll = nil
+      M.cancel()
+      return
+    end
     local ok, desc = pcall(function() return button:attributeValue("AXDescription") end)
     local age = hs.timer.secondsSinceEpoch() - t0
     if ok and desc and desc ~= "Read aloud" then
@@ -381,7 +389,9 @@ function M.cancel(session)
   if wasPaused then return "ok" end -- already silent
   if b then
     local ok, desc = pcall(function() return b:attributeValue("AXDescription") end)
-    if ok and desc and desc ~= "Read aloud" then pcall(function() b:performAction("AXPress") end) end
+    -- Only a message that is playing right now gets pressed (= paused). A message Claude already
+    -- paused (its own dictation does that) is left alone: pressing it again would resume it.
+    if ok and desc == "Pause" then pcall(function() b:performAction("AXPress") end) end
   end
   return "ok"
 end
