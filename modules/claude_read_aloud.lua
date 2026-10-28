@@ -96,6 +96,7 @@ local function unduck()
   ducked = {}
 end
 
+local lastPrompt = nil -- Claude's prompt field, from the latest scan
 local QDIR = os.getenv("HOME") .. "/.hammerspoon/tmp/read_aloud_queue"
 
 local function log(msg) print("claude_read_aloud: " .. msg) end
@@ -151,6 +152,7 @@ local function scan()
   walk(root, 0)
   local list = {}
   for b, t in pairs(found) do table.insert(list, { button = b, text = norm(t) }) end
+  lastPrompt = prompt or lastPrompt
   return list, prompt
 end
 
@@ -181,8 +183,22 @@ end
 
 local tryRead
 
+-- Presses a Read aloud button, then hands keyboard focus straight back to the prompt with its
+-- draft and caret untouched, so Enter sends the reply instead of pausing the reading.
 local function press(button)
-  cc.withInput("read-aloud", function() button:performAction("AXPress") end)
+  cc.withInput("read-aloud", function()
+    local p = lastPrompt
+    local range = p and p:attributeValue("AXSelectedTextRange")
+    button:performAction("AXPress")
+    if p then
+      hs.timer.doAfter(0.05, function()
+        pcall(function()
+          p:setAttributeValue("AXFocused", true)
+          if range then p:setAttributeValue("AXSelectedTextRange", range) end
+        end)
+      end)
+    end
+  end)
 end
 
 local function watchReading(button, item)
