@@ -10,6 +10,12 @@
 #       1 = cancelled (Esc: "not now"), preempted, timed out in the queue, or Hammerspoon unreachable.
 #       3 = STOPPED: Matt pressed Stop (held Esc ~2.5s, or the Stop button). Stop the whole task, don't ask
 #           again, and report. Later asks from this session return 3 at once.
+#       --bg: nothing visible happens (no window/app/focus change Matt would see), so
+#           don't wait for a playing show and don't leave fullscreen.
+#       While a show plays (Now Playing / a video player) a non --bg ask waits behind a
+#           small top-right pill until Matt clicks Allow or pauses (up to 10 min), then
+#           counts down as usual. A fullscreen front window is exited before the grant
+#           and put back after `done`, so always call done.
 #       --urgent jumps the line and preempts a normal holder: ONLY to stop a runaway.
 #       --thread cmsg_…: your project thread (project is read from the id; --project chan_… overrides),
 #       --link <url>: any other link (e.g. claude://code/session_…). Clicking the banner opens it,
@@ -39,12 +45,13 @@ hsc() {
 case "$1" in
   ask|lock)
     cmd=$1; shift
-    urgent=false; quiet=false; light=false; pos=(); link=""; thread=""
+    urgent=false; quiet=false; light=false; bg=false; pos=(); link=""; thread=""
     project=""   # read from the thread id unless --project is given
     while (( $# )); do
       case $1 in
         --urgent) urgent=true ;;
         --light) light=true ;;
+        --bg) bg=true ;;
         --link) link=$2; shift ;;
         --thread) thread=$2; shift ;;
         --project) project=$2; shift ;;
@@ -65,7 +72,7 @@ case "$1" in
     # idle agent; 2026-10-23).
     key="k$$.$RANDOM$RANDOM"
     for try in 1 2 3; do
-      id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\", \"$key\")")
+      id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\", \"$key\", $bg)")
       [[ $id == t<-> ]] && break
       sleep 1
     done
@@ -78,6 +85,8 @@ case "$1" in
         queued:*) [[ $s != $last ]] && echo "waiting for another agent ($s)" >&2; last=$s ;;
         snoozed:*) [[ $last != snoozed:* ]] && echo "Matt snoozed this ask (${s#snoozed:}s); still waiting" >&2
                    last=$s; deadline=$(( SECONDS + ${s#snoozed:} + QUEUE_WAIT + secs + 10 )) ;;
+        waiting:*) [[ $last != waiting:* ]] && echo "Matt is watching something; waiting for Allow or a pause" >&2
+                   last=$s; deadline=$(( SECONDS + ${s#waiting:} + QUEUE_WAIT + secs + 10 )) ;;
         pending|starting|"") ;;
         stopped) echo "$STOP_MSG"; exit 3 ;;
         cancelled) echo "cancelled: Matt said not now. Don't ask again on your own; tell him what you need control for and wait for his go."; exit 1 ;;
@@ -92,5 +101,5 @@ case "$1" in
   blocked) hsc 'return claudeControl.blocked()' ;;
   unblock) [[ -n $2 ]] && hsc "return claudeControl.unblock(\"${2//[^A-Za-z0-9_-]/}\")" || hsc 'return claudeControl.unblock()' ;;
   state) [[ -n $2 ]] && hsc "return claudeControl.state(\"$2\")" || hsc 'return claudeControl.state()' ;;
-  *) echo "usage: claude-control ask <reason> [secs] [--light] [--urgent] [--thread cmsg_… | --link url] | lock <name> [--urgent] | done [ticket] | state [ticket] | blocked | unblock [agent]"; exit 2 ;;
+  *) echo "usage: claude-control ask <reason> [secs] [--light] [--bg] [--urgent] [--thread cmsg_… | --link url] | lock <name> [--urgent] | done [ticket] | state [ticket] | blocked | unblock [agent]"; exit 2 ;;
 esac

@@ -40,6 +40,13 @@
 --                    Snooze chips (30s / 1m / 5m) put the ask aside (Matt, 2026-10-22).
 -- link (--link / --thread): clicking the banner body opens the asking agent's
 -- thread or session, so Matt can see who wants control and why.
+-- Every display (Matt, 2026-10-28): banner and pill show on each screen, not just the main one.
+-- Watching something (modules/playback_state: Now Playing or a video player's
+-- display-sleep assertion): the ask doesn't count down. A small top-right pill
+-- ("Claude wants to control your Mac for a second", Allow) waits until Matt
+-- clicks Allow or pauses the show, then the normal banner and countdown run.
+-- bg asks (--bg: nothing visible happens) skip that wait and the fullscreen step.
+-- Fullscreen front window: exited just before the grant, put back on release.
 -- Agents use the wrapper: ~/.hammerspoon/bin/claude-control ask "<reason>" [secs] [--light] [--thread cmsg_…]
 
 -- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
@@ -53,6 +60,8 @@ local TWEAKS = {
   ["look.pillOpacity"] = { 0.98, min = 0.5, max = 1, step = 0.01, note = "Opacity of the small ask pill background" },
   ["look.pillBorderWidth"] = { 1.5, min = 0, max = 5, step = 0.5, note = "Border thickness of the small ask pill in points" },
   ["look.bannerRadius"] = { 16, min = 0, max = 40, step = 1, note = "Corner roundness of the full banner in points" },
+  ["timing.playingMaxWait"] = { 600, min = 30, max = 3600, step = 30, note = "Seconds an ask waits while a show plays (for Allow or a pause) before giving up" },
+  ["timing.fullscreenSettle"] = { 1.0, min = 0.3, max = 3, step = 0.1, note = "Seconds to let a fullscreen window finish exiting before Claude gets control" },
   ["look.bannerOpacity"] = { 0.95, min = 0.5, max = 1, step = 0.01, note = "Opacity of the full banner background" },
 }
 local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Claude Take-Control Banner",
@@ -80,9 +89,11 @@ local ORPHAN_SECS = 8
 local BLOCK_SECS = 2 * 3600
 
 local layout = require("modules.hud_layout")
+local playback = require("modules.playback_state")
 
 local state = "idle"     -- the banner holder's state
 local lightMode = false  -- the holder's tier
+local waiting = false    -- holder is waiting for Allow / a pause (a show is playing)
 local reasonText = ""
 local remaining = 0
 
@@ -111,9 +122,19 @@ local function isBlocked(agent)
   return false
 end
 
+-- Put back a window that was taken out of fullscreen for this ticket.
+local function restoreFullscreen(t)
+  local w = t and t.restoreWin
+  if not w then return end
+  t.restoreWin = nil
+  hs.timer.doAfter(0.3, function() pcall(function() w:setFullScreen(true) end) end)
+end
+
+local ENDED = { done = true, cancelled = true, stopped = true, preempted = true, error = true, timedout = true, dropped = true }
 local function setState(s)
   state = s
-  if active and tickets[active] then tickets[active].state = s end
+  local t = active and tickets[active]
+  if t then t.state = s; if ENDED[s] then restoreFullscreen(t) end end
 end
 
 local function hideGlow()
@@ -179,12 +200,16 @@ local function setBannerFlag(on)
 end
 
 local function hideBanner()
+  waiting = false
   setBannerFlag(false)
   hideGlow()
   if activeWatchers.claudeControlCanvas then
     activeWatchers.claudeControlCanvas:delete()
     activeWatchers.claudeControlCanvas = nil
   end
+  for _, c in ipairs(activeWatchers.claudeControlMirrors or {}) do c:delete() end
+  activeWatchers.claudeControlMirrors = nil
+  activeWatchers.claudeControlFit = nil
   if activeWatchers.claudeControlTimer then
     activeWatchers.claudeControlTimer:stop()
     activeWatchers.claudeControlTimer = nil
@@ -330,6 +355,7 @@ local function stopTicket(id)
   if id == active then hideBanner(); active = nil; state = "idle" end
   local wasGranted = t.state == "granted"
   t.state = "stopped"
+  restoreFullscreen(t)
   if t.agent and t.agent ~= "" then
     blocked[t.agent] = hs.timer.secondsSinceEpoch() + BLOCK_SECS
     saveBlocked()
@@ -407,8 +433,8 @@ end
 -- Each canvas records its wrapping elements and their base frames when built
 -- (activeWatchers.claudeControlFit = { base = {h}, frames = {...}, wraps = {i...} }).
 local function fitText(c)
-  local fit = activeWatchers.claudeControlFit
-  if not fit or fit.canvas ~= c then return end
+  local fit = activeWatchers.claudeControlFit and activeWatchers.claudeControlFit[c]
+  if not fit then return end
   local shifts = {}  -- { bottom = base bottom of a wrapping element, extra = px }
   local total = 0
   for _, i in ipairs(fit.wraps) do
@@ -443,15 +469,24 @@ local function trackFit(c, wraps, centred)
     local f = c[i].frame
     frames[i] = { x = f.x, y = f.y, w = f.w, h = f.h }
   end
-  activeWatchers.claudeControlFit = { canvas = c, base = { h = c:frame().h }, frames = frames,
-                                      wraps = wraps, centred = centred }
+  activeWatchers.claudeControlFit = activeWatchers.claudeControlFit or {}
+  activeWatchers.claudeControlFit[c] = { base = { h = c:frame().h }, frames = frames,
+                                         wraps = wraps, centred = centred }
+end
+
+local function allCanvases()
+  local list = { activeWatchers.claudeControlCanvas }
+  for _, m in ipairs(activeWatchers.claudeControlMirrors or {}) do list[#list + 1] = m end
+  return list
 end
 
 local function render()
-  local c = activeWatchers.claudeControlCanvas
-  if not c then return end
+  if not activeWatchers.claudeControlCanvas then return end
   local title, sub
-  if lightMode then
+  if waiting then
+    title = "Claude wants to control your Mac for a second: " .. reasonText
+    sub = "Waits until you click Allow or pause the show"
+  elseif lightMode then
     title = state == "pending" and string.format("Claude, in %d: %s", remaining, reasonText)
       or ("Claude: " .. reasonText)
     local t = active and tickets[active]
@@ -463,9 +498,11 @@ local function render()
     title = "Claude is controlling your Mac"
     sub = reasonText
   end
-  c[2].text = title
-  c[3].text = sub
-  fitText(c)
+  for _, c in ipairs(allCanvases()) do
+    c[2].text = title
+    c[3].text = sub
+    fitText(c)
+  end
 end
 
 -- Light tier: a small translucent pill in its HUD slot. Element order matches
@@ -473,9 +510,15 @@ end
 -- Row 1: title + Stop. Row 2: hint + snooze chips (30s / 1m / 5m).
 local SNOOZES = { { id = "snooze30", label = "30s", secs = 30 }, { id = "snooze60", label = "1m", secs = 60 },
                   { id = "snooze300", label = "5m", secs = 300 } }
-local function lightCanvas()
+-- Light-pill rect on screen scr (the slot's corner, on every display).
+local function pillRect(scr, w, h)
+  local slot = layout.slot("claude_control_light") or { corner = "topRight", dx = 16, dy = 14 }
+  return layout.place(scr:frame(), slot, w, h)
+end
+
+local function lightCanvas(scr)
   local w, h = 432, 62   -- 20% bigger than the first pill (360x52), same text sizes
-  local c = hs.canvas.new(layout.rect("claude_control_light", w, h))
+  local c = hs.canvas.new(pillRect(scr, w, h))
   local chipW, chipGap = 38, 4
   local chipsX = w - 12 - #SNOOZES * chipW - (#SNOOZES - 1) * chipGap
   c:appendElements(
@@ -509,8 +552,36 @@ local function lightCanvas()
   return c
 end
 
-local function fullCanvas()
-  local screen = hs.screen.mainScreen():frame()
+-- Waiting pill (a show is playing): same slot as the light pill, with Allow.
+local function waitCanvas(scr)
+  local w, h = 432, 62
+  local c = hs.canvas.new(pillRect(scr, w, h))
+  c:appendElements(
+    { id = "body", type = "rectangle", action = "fill", trackMouseDown = true,
+      roundedRectRadii = { xRadius = T("look.pillRadius"), yRadius = T("look.pillRadius") },
+      fillColor = { hex = "#FFF6E5", alpha = T("look.pillOpacity") }, strokeColor = { hex = "#FF7A1A", alpha = 0.8 },
+      strokeWidth = T("look.pillBorderWidth") },
+    { type = "text", text = "", frame = { x = 14, y = 10, w = w - 98, h = 20 },
+      textSize = 13, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textLineBreak = "wordWrap" },
+    { type = "text", text = "", frame = { x = 14, y = 37, w = w - 98, h = 16 },
+      textSize = 11, textColor = { hex = "#6B5330" }, textLineBreak = "truncateTail" },
+    { id = "allow", type = "rectangle", action = "fill", trackMouseDown = true,
+      frame = { x = w - 72, y = 8, w = 60, h = 24 },
+      roundedRectRadii = { xRadius = 7, yRadius = 7 }, fillColor = { hex = "#FF7A1A" } },
+    { type = "text", text = "Allow", frame = { x = w - 72, y = 11, w = 60, h = 18 },
+      textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textAlignment = "center" },
+    { id = "notnow", type = "rectangle", action = "fill", trackMouseDown = true,
+      frame = { x = w - 72, y = 35, w = 60, h = 20 },
+      roundedRectRadii = { xRadius = 6, yRadius = 6 }, fillColor = { hex = "#F1E2C6" } },
+    { type = "text", text = "Not now", frame = { x = w - 72, y = 37, w = 60, h = 16 },
+      textSize = 11, textColor = { hex = "#3B2A12" }, textAlignment = "center" })
+  return c
+end
+
+local function fullCanvas(scr)
+  local screen = scr:frame()
   local w, h = 560, 118
   local frame = { x = screen.x + (screen.w - w) / 2, y = screen.y + (screen.h - h) / 2, w = w, h = h }
   local c = hs.canvas.new(frame)
@@ -538,8 +609,8 @@ local function fullCanvas()
   return c
 end
 
-local function drawBanner()
-  local c = lightMode and lightCanvas() or fullCanvas()
+local function makeCanvas(scr)
+  local c = (waiting and waitCanvas or lightMode and lightCanvas or fullCanvas)(scr)
   c:level(hs.canvas.windowLevels.screenSaver)
   c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
   c:mouseCallback(function(_, _, elementId)
@@ -547,7 +618,8 @@ local function drawBanner()
     hs.timer.doAfter(0, function()
       local t = active and tickets[active]
       local secs = tostring(elementId):match("^snooze(%d+)$")
-      if elementId == "stop" then stopTicket(active)
+      if elementId == "allow" then M.allow()
+      elseif elementId == "stop" then stopTicket(active)
       elseif secs then M.snooze(tonumber(secs))
       elseif elementId ~= "notnow" and t and t.link then require("modules.claude_links").open(t.link)
       else cancel() end
@@ -555,15 +627,45 @@ local function drawBanner()
   end)
   c:canvasMouseEvents(true, false, false, false)
   -- Light: the title (reason) wraps. Full: title and reason both may wrap.
-  if lightMode then trackFit(c, { 2 }, false) else trackFit(c, { 2, 3 }, true) end
-  if not lightMode then drawGlow() end
+  if lightMode or waiting then trackFit(c, { 2 }, false) else trackFit(c, { 2, 3 }, true) end
   c:show()
-  activeWatchers.claudeControlCanvas = c
+  return c
+end
+
+-- One canvas per display; the main screen's is claudeControlCanvas (hold bar anchor).
+local function drawBanner()
+  local main = hs.screen.mainScreen()
+  activeWatchers.claudeControlCanvas = makeCanvas(main)
+  local mirrors = {}
+  for _, scr in ipairs(hs.screen.allScreens()) do
+    if scr:id() ~= main:id() then mirrors[#mirrors + 1] = makeCanvas(scr) end
+  end
+  activeWatchers.claudeControlMirrors = mirrors
+  if not lightMode and not waiting then drawGlow() end
   setBannerFlag(true)
 end
 
-local function begin(reason, seconds, light)
+-- Grant: exit a fullscreen front window first (unless bg), let it settle, then grant.
+local function grant(id)
+  local t = tickets[id]
+  if not t or t.granting then return end
+  t.granting = true
+  local win = not t.bg and hs.window.focusedWindow()
+  if win and win:isFullScreen() then
+    t.restoreWin = win
+    win:setFullScreen(false)
+    activeWatchers.claudeControlSettle = hs.timer.doAfter(T("timing.fullscreenSettle"), function()
+      if active == id and state == "pending" then setState("granted") else restoreFullscreen(t) end
+    end)
+  else
+    setState("granted")
+  end
+end
+M._grant = grant
+
+local function begin(reason, seconds, light, isWaiting)
   hideBanner()
+  waiting = isWaiting and true or false
   lightMode = light and true or false
   if activeWatchers.claudeControlEsc then activeWatchers.claudeControlEsc:stop() end
   reasonText = reason or "Running a quick test"
@@ -595,8 +697,20 @@ local function begin(reason, seconds, light)
   activeWatchers.claudeControlEsc = esc
 
   local held = 0
+  local id = active
   activeWatchers.claudeControlTimer = hs.timer.doEvery(1, function()
-    if state == "pending" then
+    if state == "pending" and waiting then
+      local t = tickets[id]
+      if isOrphan(t) then t.state = "dropped"; M.done(id); return end
+      if hs.timer.secondsSinceEpoch() - (t.waitStart or 0) > T("timing.playingMaxWait") then
+        hideBanner(); setState("timedout"); active, state, waiting = nil, "idle", false; advance(); return
+      end
+      playback.check(function(playing)
+        if not playing and active == id and waiting and state == "pending" then
+          begin(t.reason, t.seconds, t.light, false)  -- show paused: the normal countdown
+        end
+      end)
+    elseif state == "pending" then
       local t = tickets[active]
       if isOrphan(t) then
         print("claude_control: dropped orphaned ask from " .. tostring(t.agent) .. ": " .. tostring(t.reason))
@@ -606,9 +720,9 @@ local function begin(reason, seconds, light)
       end
       -- An agent's ask is granted only once its wrapper has polled: a wrapper that
       -- gave up never polls, so its ticket waits here and is dropped as an orphan.
-      local waiting = t and t.agent and t.agent ~= "" and not t.quiet and not t.polled
-      if remaining > 1 or not waiting then remaining = remaining - 1 end
-      if remaining <= 0 then setState("granted") end
+      local unpolled = t and t.agent and t.agent ~= "" and not t.quiet and not t.polled
+      if remaining > 1 or not unpolled then remaining = remaining - 1 end
+      if remaining <= 0 then grant(active) end
       render()
     elseif state == "granted" then
       held = held + 1
@@ -641,18 +755,22 @@ advance = function()
   t.state = "pending"
   activeWatchers.claudeControlStart = hs.timer.doAfter(0, function()
     if active ~= id then return end
-    local ok, err = pcall(begin, t.reason, t.seconds, t.light)
-    if not ok then
+    local function go(isWaiting)
+      if active ~= id then return end
+      if isWaiting then t.waitStart = hs.timer.secondsSinceEpoch() end
+      local ok, err = pcall(begin, t.reason, t.seconds, t.light, isWaiting)
+      if ok then return end
       print("claude_control: " .. tostring(err))
       hideBanner()
       setState("error")
       active = nil
       advance()
     end
+    if t.bg then go(false) else playback.check(function(playing) go(playing) end) end
   end)
 end
 
-function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key)
+function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key, bg)
   if key and byKey[key] and tickets[byKey[key]] then
     tickets[byKey[key]].seen = hs.timer.secondsSinceEpoch()
     return byKey[key]
@@ -661,7 +779,7 @@ function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key)
   local id = "t" .. nextId
   tickets[id] = { reason = reason or "Running a quick test", seconds = seconds, urgent = urgent and true or false,
                   quiet = quiet and true or false, state = "queued", seen = hs.timer.secondsSinceEpoch(),
-                  agent = agent, pid = pid, light = light and true or false,
+                  agent = agent, pid = pid, light = light and true or false, bg = bg and true or false,
                   link = require("modules.claude_links").resolve(link) }
   if key then byKey[key] = id end
   if not quiet and isBlocked(agent) then
@@ -723,6 +841,9 @@ function M.state(id)
   if t.state == "snoozed" then
     return "snoozed:" .. math.max(0, math.ceil((t.wake or 0) - hs.timer.secondsSinceEpoch()))
   end
+  if id == active and t.state == "pending" and waiting then
+    return "waiting:" .. math.max(0, math.ceil(T("timing.playingMaxWait") - (hs.timer.secondsSinceEpoch() - (t.waitStart or 0))))
+  end
   -- "pending" with no banner drawn yet reads as "starting"
   if id == active and t.state == "pending" and not activeWatchers.claudeControlCanvas then return "starting" end
   return t.state
@@ -741,6 +862,14 @@ function M.done(id)
     tickets[id].state = "done"
   end
   return "idle"
+end
+
+-- Allow on the waiting pill: go ahead with the normal banner and countdown.
+function M.allow()
+  local t = active and tickets[active]
+  if not (t and waiting and state == "pending") then return "idle" end
+  begin(t.reason, t.seconds, t.light, false)
+  return "pending"
 end
 
 -- Matt: "ask me again in secs". The holder steps aside (the next agent in line
