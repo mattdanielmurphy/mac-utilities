@@ -266,11 +266,31 @@ local function watchReading(button, item)
   end)
 end
 
+local waitLogged, lastClose = false, 0
 -- Reads the oldest queued reply that's on screen if Claude is in front; true once pressed.
 tryRead = function()
   local app = claude()
   if reading or not (pending and app and app:isFrontmost()) then return false end
-  if claudeDictating() then return false end -- never start reading over Matt's dictation
+  -- Claude's mic is open. Usually that's our own auto-dictate, still listening with nothing said:
+  -- close it so the new reply reads now (it used to wait until Matt sent, one reply behind).
+  -- If the prompt has words in it, he's really dictating: wait.
+  if claudeDictating() then
+    local v = lastPrompt and lastPrompt:attributeValue("AXValue")
+    local empty = type(v) ~= "string" or v:match("^%s*$") ~= nil
+    if not empty then
+      if not waitLogged then log("waiting: Matt is dictating"); waitLogged = true end
+      return false
+    end
+    if hs.timer.secondsSinceEpoch() - lastClose < 3 then return false end -- one toggle, then wait for the mic
+    lastClose = hs.timer.secondsSinceEpoch()
+    log("closing idle dictation so the new reply can be read")
+    cc.withInput("read-aloud close idle dictation", function(release)
+      if claudeDictating() and app:isFrontmost() then hs.eventtap.keyStroke({ "cmd" }, "d", 0) end
+      release()
+    end)
+    return false -- the next check reads once the mic is off
+  end
+  waitLogged = false
   local item, button, text = nextOnScreen()
   if not item then return false end
   os.remove(item.path) -- put back by watchReading if the press never takes
