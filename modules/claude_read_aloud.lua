@@ -224,10 +224,25 @@ local function press(button)
   end)
 end
 
+-- Claude's real reading speed, learned from replies read to the end (the timed Actions stop
+-- used a fixed 15 chars/s guess, which ran long, so the Actions line got read out).
+local CPS_FILE = os.getenv("HOME") .. "/.hammerspoon/tmp/read_aloud_cps"
+local function learnedCps()
+  local f = io.open(CPS_FILE); if not f then return nil end
+  local v = tonumber(f:read("*l")); f:close(); return v
+end
+local function learnCps(cps)
+  local old = learnedCps()
+  local new = old and (old * 0.7 + cps * 0.3) or cps
+  local f = io.open(CPS_FILE, "w"); if f then f:write(string.format("%.2f\n", new)); f:close() end
+  log(string.format("speech speed measured %.1f chars/s, now using %.1f", cps, new))
+end
+
 local function watchReading(button, item)
   if poll then poll:stop() end
   if cutTimer then cutTimer:stop(); cutTimer = nil end
   local started, t0 = false, hs.timer.secondsSinceEpoch()
+  local startedAt
   reading = button
   poll = hs.timer.doEvery(0.5, function()
     if reading ~= button then poll:stop(); poll = nil; return end
@@ -247,8 +262,10 @@ local function watchReading(button, item)
         log("reading started, button now: " .. desc)
         duck()
         -- Stop before the hidden Actions line: Claude's voice reads the stored text, so time it.
+        startedAt = hs.timer.secondsSinceEpoch()
         if item.cut then
-          local secs = item.cut / T("speech.cps") + T("speech.pad")
+          local cps = math.max(learnedCps() or 0, T("speech.cps"))
+          local secs = item.cut / cps + T("speech.pad")
           cutTimer = hs.timer.doAfter(secs, function()
             cutTimer = nil
             if reading == button then log("stopping before the Actions line"); press(button) end
@@ -262,6 +279,11 @@ local function watchReading(button, item)
       if cutTimer then cutTimer:stop(); cutTimer = nil end
       unduck()
       log(string.format("reading ended (started=%s age=%.1f) %s", tostring(started), age, item.name or ""))
+      -- Read to its natural end (no Actions stop, long enough to time): learn the speed.
+      if started and startedAt and not item.cut and (item.chars or 0) > 150 then
+        local secs = hs.timer.secondsSinceEpoch() - startedAt
+        if secs > 5 then learnCps(item.chars / secs) end
+      end
       -- The press never took (button never turned to Pause): put the reply back for another try.
       if not started then
         local tries = (item.tries or 0) + 1
