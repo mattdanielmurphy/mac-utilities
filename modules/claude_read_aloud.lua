@@ -183,11 +183,13 @@ local function stopRetry()
   if retry then retry:stop(); retry = nil end
 end
 
+local ourMicAt = 0 -- when our auto-dictate last opened the mic
 local function startDictation()
   if not T("dictate.after") then return log("dictation off") end
   local app = claude()
   if not app or not app:isFrontmost() then return log("no dictation: Claude not in front") end
   log("starting dictation")
+  ourMicAt = hs.timer.secondsSinceEpoch()
   cc.withInput("read-aloud dictation", claudeDictate)
 end
 
@@ -277,10 +279,15 @@ tryRead = function()
   -- Claude's mic is open. Usually that's our own auto-dictate, still listening with nothing said:
   -- close it so the new reply reads now (it used to wait until Matt sent, one reply behind).
   -- If the prompt has words in it, he's really dictating: wait.
-  if claudeDictating() then
+  local micOn = claudeDictating()
+  if not micOn and ourMicAt > 0 and hs.timer.secondsSinceEpoch() - ourMicAt > 5 then ourMicAt = 0 end -- our mic closed
+  if micOn then
     local v = lastPrompt and lastPrompt:attributeValue("AXValue")
     local empty = type(v) ~= "string" or v:match("^%s*$") ~= nil
-    if not empty then
+    -- Only close a mic our auto-dictate opened (not one Matt opened himself: that cut him off
+    -- at his first word), and only for a reply that is actually on screen to read.
+    local ours = ourMicAt > 0 and ourMicAt > (lastClose or 0)
+    if not empty or not ours or not nextOnScreen() then
       if not waitLogged then log("waiting: Matt is dictating"); waitLogged = true end
       return false
     end
