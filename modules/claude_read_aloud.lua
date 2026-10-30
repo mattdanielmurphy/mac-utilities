@@ -135,7 +135,7 @@ local function scan()
   if not app then return {}, nil end
   local root = ax.applicationElement(app)
   root:setAttributeValue("AXManualAccessibility", true)
-  local found, prompt = {}, nil
+  local found, prompt, patched = {}, nil, {}
   local function walk(e, d)
     if d > 70 then return {}, "" end
     local role = e:attributeValue("AXRole")
@@ -147,6 +147,11 @@ local function scan()
       local v = e:attributeValue("AXValue")
       if type(v) == "string" then parts[1] = v end
     end
+    -- The newest turn's buttons sit in their own row AFTER its text (older replies hold theirs
+    -- inside the reply), so a lone button with no text of its own gets the button-less text
+    -- just before it. Without this the newest reply never matched until Matt sent, when Claude
+    -- folds that row into the reply: then the "new" reply got read one message late.
+    local orphan = {}
     for _, c in ipairs(e:attributeValue("AXChildren") or {}) do
       -- Only text before the button belongs to its reply: text after it is the next reply,
       -- whose own button isn't drawn yet (else that reply's key would press this button).
@@ -154,9 +159,15 @@ local function scan()
       local bs, t = walk(c, d + 1)
       for _, b in ipairs(bs) do table.insert(buttons, b) end
       if before == 0 and #buttons <= 1 and t ~= "" then table.insert(parts, t) end
+      if #bs == 0 then
+        if t ~= "" then table.insert(orphan, t) end
+      else
+        if #bs == 1 and found[bs[1]] == "" and #orphan > 0 then found[bs[1]] = table.concat(orphan, ""); patched[bs[1]] = true end
+        orphan = {}
+      end
     end
     local text = #buttons <= 1 and table.concat(parts, "") or ""
-    if #buttons == 1 then found[buttons[1]] = text end
+    if #buttons == 1 and not patched[buttons[1]] then found[buttons[1]] = text end
     return buttons, text
   end
   walk(root, 0)
@@ -310,7 +321,7 @@ tryRead = function()
   end
   pending = #queue() > 0
   if not pending then stopRetry() end
-  log("reading " .. item.name)
+  log(string.format("reading %s key=%s button text=%s…%s", item.name, item.key:sub(1, 20), text:sub(1, 30), text:sub(-30)))
   press(button)
   watchReading(button, item)
   return true
@@ -374,6 +385,12 @@ function M.status()
 end
 
 -- For checks: the opening of each on-screen reply's text, as matching sees it.
+function M._scanTexts()
+  local out = {}
+  for _, f in ipairs((scan())) do table.insert(out, f.text) end
+  return out
+end
+
 function M.buttons()
   local out = {}
   for _, f in ipairs((scan())) do table.insert(out, f.text:sub(1, 40)) end
