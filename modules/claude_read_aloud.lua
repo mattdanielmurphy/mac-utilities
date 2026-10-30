@@ -54,6 +54,10 @@ local function claudeDictating()
 end
 local function claudeDictate(release)
   local app = claude()
+  -- Which mic: a Bluetooth headset's call mode starves Claude's speech server, which then stops
+  -- dictation after 60 s with no words; this shows in the log when it happens.
+  local dev = hs.audiodevice.defaultInputDevice()
+  M._log(string.format("dictation opening on %s (%s)", dev and dev:name() or "?", dev and dev:transportType() or "?"))
   if app and app:isFrontmost() and not claudeDictating() then hs.eventtap.keyStroke({ "cmd" }, "d", 0) end
   if release then release() end
 end
@@ -107,6 +111,7 @@ local function log(msg)
   local f = io.open(LOGFILE, "a")
   if f then f:write(os.date("%Y-%m-%d %H:%M:%S  ") .. msg .. "\n"); f:close() end
 end
+M._log = log -- for code above this point
 
 -- Queue: files named <ms>-<n>-<session>.json, so a name sort is oldest first.
 local function queue()
