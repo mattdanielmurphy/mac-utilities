@@ -148,9 +148,12 @@ local function scan()
       if type(v) == "string" then parts[1] = v end
     end
     for _, c in ipairs(e:attributeValue("AXChildren") or {}) do
+      -- Only text before the button belongs to its reply: text after it is the next reply,
+      -- whose own button isn't drawn yet (else that reply's key would press this button).
+      local before = #buttons
       local bs, t = walk(c, d + 1)
       for _, b in ipairs(bs) do table.insert(buttons, b) end
-      if #buttons <= 1 and t ~= "" then table.insert(parts, t) end
+      if before == 0 and #buttons <= 1 and t ~= "" then table.insert(parts, t) end
     end
     local text = #buttons <= 1 and table.concat(parts, "") or ""
     if #buttons == 1 then found[buttons[1]] = text end
