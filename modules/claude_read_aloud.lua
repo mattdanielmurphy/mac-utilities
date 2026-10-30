@@ -419,6 +419,19 @@ function M.isPending() return pending end
 
 -- Matt typed or sent something: stop reading and drop that session's waiting replies
 -- (all of them when no session is given).
+-- He sent a message in a session: its queued replies are ones he has already seen, so drop them
+-- (a read playing in another session is left alone).
+function M.drop(session)
+  local n = 0
+  for _, i in ipairs(queue()) do
+    if i.session == session then os.remove(i.path); n = n + 1 end
+  end
+  if n > 0 then log(string.format("sent in %s: dropped %d unread", session, n)) end
+  pending = #queue() > 0
+  if not pending then stopRetry() end
+  return "ok"
+end
+
 function M.cancel(session)
   log("cut off (typed, sent or dictated)" .. (session and (" in " .. session) or "") .. ": queue dropped")
   unduck()
