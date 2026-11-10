@@ -54,6 +54,8 @@ local function isActive(o)
     return false
 end
 
+local pendingDeletes = {}
+
 -- After stop(): report and dispose of whatever the module left running.
 local function sweep(id, entry)
     local leaks = {}
@@ -62,6 +64,19 @@ local function sweep(id, entry)
         if isActive(o) then table.insert(leaks, kind) end
         if kind == "hs.task" then
             if isActive(o) then pcall(o.terminate, o) end
+        elseif kind == "hs.webview" or kind == "hs.canvas" then
+            -- Deleting one mid-fade crashed Hammerspoon (LuaSkin pushLuaRef abort in
+            -- HSWebViewWindow fadeOut, 4x on 2026-11-08): hide now, delete once fades are done.
+            pcall(o.hide, o)
+            pendingDeletes[#pendingDeletes + 1] = o
+            if not _G.activeWatchers.mmPendingDelete then
+                _G.activeWatchers.mmPendingDelete = hs.timer.doAfter(3, function()
+                    _G.activeWatchers.mmPendingDelete = nil
+                    local list = pendingDeletes
+                    pendingDeletes = {}
+                    for _, v in ipairs(list) do pcall(v.delete, v) end
+                end)
+            end
         else
             for _, m in ipairs({ "stop", "delete" }) do
                 if type(o[m]) == "function" then pcall(o[m], o) end

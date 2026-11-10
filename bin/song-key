@@ -69,7 +69,10 @@ def hooktheory(artist, title):
 
 
 def acousticbrainz(artist, title):
-    q = f'recording:"{title}" AND artist:"{artist}"'
+    # Inside quotes Lucene still treats ? and * as wildcards, and \ / " end or escape the phrase:
+    # "Can I Kick It?" found nothing (2026-11-09). Drop them.
+    lucene = lambda v: re.sub(r'[?*"\\]', " ", v).strip()
+    q = f'recording:"{lucene(title)}" AND artist:"{lucene(artist)}"'
     data = get("https://musicbrainz.org/ws/2/recording/?fmt=json&limit=15&query=" + urllib.parse.quote(q), MB_UA)
     if not data:
         return None

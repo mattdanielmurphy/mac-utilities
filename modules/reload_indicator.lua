@@ -34,8 +34,7 @@ function M.show()
   if canvas then canvas:delete() end
 
   local SIZE, MARGIN, HOLD, FADE = T("badge.size"), T("badge.margin"), T("fade.hold"), T("fade.out")
-  local f = hs.screen.primaryScreen():frame()
-  canvas = hs.canvas.new({ x = f.x + MARGIN, y = f.y + f.h - SIZE - MARGIN, w = SIZE, h = SIZE })
+  canvas = hs.canvas.new(require("modules.hud_layout").rect("reload", SIZE, SIZE))
   canvas:level(hs.canvas.windowLevels.overlay)
   canvas:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
   canvas:clickActivating(false)

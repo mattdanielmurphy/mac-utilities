@@ -29,7 +29,6 @@
 #   claude-control blocked          list stopped agents still blocked
 #   claude-control unblock [agent]  let a stopped agent (or all) ask again
 STOP_MSG="stopped: Matt pressed Stop. End this task now: don't ask for control again, don't retry another way; tell him what you were doing and what's left."
-HS=/usr/local/bin/hs
 # Who is asking: the Claude session (stable across its turns), so Stop can
 # block it; its claude pid so Stop can interrupt the turn.
 AGENT=${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-ppid$PPID}}
@@ -37,10 +36,13 @@ AGENT_PID=${CLAUDE_PID:-0}
 [[ $AGENT_PID == <-> ]] || AGENT_PID=0
 AGENT=${AGENT//[^A-Za-z0-9_-]/}
 QUEUE_WAIT=180   # seconds to wait for other agents before giving up
-# `hs -c` can hang right after a Hammerspoon reload even with -t, so run it
-# under a watchdog that kills it after 4s.
+# Every call goes through bin/hsx: one `hs -c` at a time (a shared lock) under a
+# 4 s watchdog. Overlapping `hs -c` calls from several agents jam Hammerspoon's
+# IPC and all fail together (2026-11-09: "hammerspoon unreachable" while
+# Hammerspoon was fine); hsx queues them and logs failures to cache/hs_ipc.log.
+HSX=${0:A:h}/hsx
 hsc() {
-  perl -e 'alarm 4; exec @ARGV' $HS -t 3 -c "$1" 2>/dev/null | grep -v -E "recursing|Loading extension" | tail -1
+  $HSX "$1" 2>/dev/null | grep -v -E "recursing|Loading extension" | tail -1
 }
 case "$1" in
   ask|lock)
@@ -71,10 +73,11 @@ case "$1" in
     # and giving up must drop it (an orphaned banner Matt then Stops kills the
     # idle agent; 2026-10-23).
     key="k$$.$RANDOM$RANDOM"
-    for try in 1 2 3; do
+    # A jam clears within seconds, so keep trying for ~20 s (backoff) before giving up.
+    for pause in 0.5 1 2 3 4 5 0; do
       id=$(hsc "return claudeControl.ask(\"$reason\", $secs, $urgent, $quiet, \"$AGENT\", $AGENT_PID, $light, \"$link\", \"$key\", $bg)")
       [[ $id == t<-> ]] && break
-      sleep 1
+      sleep $pause
     done
     [[ $id == t<-> ]] || { hsc "return claudeControl.forget(\"$key\")" >/dev/null; echo "hammerspoon unreachable"; exit 1; }
     deadline=$(( SECONDS + QUEUE_WAIT + secs + 10 ))

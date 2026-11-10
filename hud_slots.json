@@ -2,26 +2,161 @@
   "about": "Spatial air traffic control for on-screen HUDs. Every HUD gets a reserved slot that never moves at runtime, so one HUD resizing can't push its neighbours. The slot is the default spot: HUDs Matt drags/resizes remember his frame in hud_positions.json (hud-kit HUDWindow), which then wins. dx/dy = distance from the slot's corner to the screen edges (visible frame, menu bar excluded); w/h = the most space the HUD may ever use. screen: builtin (laptop, else Sidecar/iPad, else primary), primary (menu-bar screen), cursor (screen under the mouse). Check for overlaps: hs -c 'return require(\"modules.hud_layout\").report()' or lua tests/hud_layout_test.lua. Read by Hammerspoon (modules/hud_layout.lua) and TrackpadMixer (~/projects/hud-kit/Sources/Slots.swift).",
   "gap": 8,
   "slots": {
-    "piano_hud":      { "corner": "bottomRight", "dx": 24,  "dy": 24,  "w": 300, "h": 150, "screen": "builtin", "owner": "modules/piano_hud.lua" },
-    "piano_card":     { "corner": "bottomRight", "dx": 24,  "dy": 182, "w": 380, "h": 340, "screen": "builtin", "owner": "modules/piano_hud.lua (click card above the HUD)" },
-    "song_key":       { "corner": "bottomRight", "dx": 332, "dy": 24,  "w": 240, "h": 144, "screen": "builtin", "owner": "modules/song_key.lua" },
-    "trackpad_mixer": { "corner": "bottomRight", "dx": 580, "dy": 24,  "w": 460, "h": 380, "screen": "cursor",  "owner": "~/projects/trackpad-mixer" },
-    "claude_control_light": { "corner": "topRight", "dx": 16, "dy": 14, "w": 432, "h": 62, "screen": "primary", "owner": "modules/claude_control.lua (light tier pill: claude-control ask --light; top right per Matt 2026-10-22)" },
-    "claude_notify":  { "corner": "topRight",    "dx": 16,  "dy": 84,  "w": 620, "h": 276, "screen": "primary", "owner": "modules/claude_notify.lua (below the control pill; 3 chips x 92px reserved (a 4th would hit the piano card on the 939px laptop screen); laptop-only caps at 3 (tweak chips.maxLaptop), more only with a second screen)" },
-    "otp_code":       { "corner": "bottomLeft",  "dx": 14,  "dy": 50,  "w": 240, "h": 56,  "screen": "primary", "owner": "modules/otp_copy.lua (2FA code pill, fades after 12 s)" },
-    "wifi_home":      { "corner": "bottomLeft",  "dx": 14,  "dy": 114, "w": 240, "h": 26,  "screen": "primary", "owner": "modules/wifi_home.lua (Wi-Fi → home note after rejoining home, fades)" },
-    "reload":         { "corner": "bottomLeft",  "dx": 14,  "dy": 14,  "w": 28,  "h": 28,  "screen": "primary", "owner": "modules/reload_indicator.lua" }
+    "piano_hud": {
+      "corner": "bottomRight",
+      "dx": 24,
+      "dy": 24,
+      "w": 300,
+      "h": 150,
+      "screen": "builtin",
+      "owner": "modules/piano_hud.lua"
+    },
+    "piano_card": {
+      "corner": "bottomRight",
+      "dx": 24,
+      "dy": 182,
+      "w": 380,
+      "h": 340,
+      "screen": "builtin",
+      "owner": "modules/piano_hud.lua (click card above the HUD)"
+    },
+    "song_key": {
+      "corner": "bottomRight",
+      "dx": 332,
+      "dy": 24,
+      "w": 240,
+      "h": 148,
+      "screen": "builtin",
+      "owner": "modules/song_key.lua"
+    },
+    "song_key_pill": {
+      "corner": "bottomRight",
+      "dx": 332,
+      "dy": 1,
+      "w": 104,
+      "h": 22,
+      "screen": "builtin",
+      "owner": "modules/song_key.lua (the card shrinks to this pill, just under the card's spot at the bottom edge; moves into the planned bottom bar later)"
+    },
+    "trackpad_mixer": {
+      "corner": "bottomRight",
+      "dx": 580,
+      "dy": 24,
+      "w": 460,
+      "h": 380,
+      "screen": "cursor",
+      "owner": "~/projects/trackpad-mixer"
+    },
+    "claude_control_light": {
+      "corner": "topRight",
+      "dx": 16,
+      "dy": 14,
+      "w": 432,
+      "h": 62,
+      "screen": "primary",
+      "owner": "modules/claude_control.lua (light tier pill: claude-control ask --light; top right per Matt 2026-10-22)"
+    },
+    "claude_notify": {
+      "corner": "topRight",
+      "dx": 16,
+      "dy": 84,
+      "w": 620,
+      "h": 276,
+      "screen": "primary",
+      "owner": "modules/claude_notify.lua (below the control pill; 3 chips x 92px reserved (a 4th would hit the piano card on the 939px laptop screen); laptop-only caps at 3 (tweak chips.maxLaptop), more only with a second screen)"
+    },
+    "otp_code": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 50,
+      "w": 240,
+      "h": 56,
+      "screen": "primary",
+      "owner": "modules/otp_copy.lua (2FA code pill, fades after 12 s)"
+    },
+    "wifi_home": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 114,
+      "w": 240,
+      "h": 26,
+      "screen": "primary",
+      "owner": "modules/wifi_home.lua (Wi-Fi → home note after rejoining home, fades)"
+    },
+    "tv_brightness": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 148,
+      "w": 240,
+      "h": 26,
+      "screen": "primary",
+      "owner": "modules/tv_brightness.lua (level bar after a brightness key, fades; follows the TV if it isn't the main screen)"
+    },
+    "question_keys": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 182,
+      "w": 330,
+      "h": 26,
+      "screen": "primary",
+      "owner": "modules/question_keys.lua (key hints while a Claude question card is live)"
+    },
+    "ambient_listen": {
+      "corner": "topLeft",
+      "dx": 14,
+      "dy": 4,
+      "w": 270,
+      "h": 34,
+      "screen": "builtin",
+      "owner": "modules/live_caption.lua (permanent listening chip: Listening / Paused + why; click brings the last text back; draggable; laptop screen)"
+    },
+    "ambient_hud": {
+      "corner": "topLeft",
+      "dx": 0,
+      "dy": 44,
+      "w": 850,
+      "h": 480,
+      "screen": "builtin",
+      "owner": "modules/live_caption.lua (live caption strip, layout A 2026-11-08: one growing block of everything you say, text shrinks as it grows, leaves after 3 min quiet / a button / a command; h = tallest it grows; laptop screen only, never the TV; top-left because the bottom is full of other slots; draggable)"
+    },
+    "reload": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 14,
+      "w": 28,
+      "h": 28,
+      "screen": "primary",
+      "owner": "modules/reload_indicator.lua"
+    },
+    "music_connect_strip": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 216,
+      "w": 400,
+      "h": 96,
+      "screen": "primary",
+      "owner": "~/projects/music-connect (player strip, dragged off the menu bar)"
+    }
   },
   "exempt": {
+    "forced_checkin": "full-screen check-in takeover: modal",
+    "otp_copy": "2FA pill sits next to the focused text field it fills",
+    "suite": "on-demand suite window, centred top, closes on its own",
+    "thread_queue": "queued-threads pill anchored to Claude's window, not a screen corner",
+    "right_command_raycast": "settings window is user-placed. KNOWN DEBT: the long-hold icon is hand-placed bottom-right and can sit on piano_hud; move it to a slot",
     "claude_control": "full tier only: centre banner + edge glow while an agent holds keyboard/mouse; modal, meant to cover everything (light tier uses the claude_control_light slot)",
     "hs.alert": "centre toasts from various modules: transient",
     "eye_breaks": "full-screen dim overlay: modal",
     "lecture_mode": "exit button while lecture mode is on: modal",
+    "logic_keys": "hold-a-letter picker: centred on screen, closes on its own",
     "logic_editor": "on-demand editor window, user-placed",
     "tweaks_panel": "⌃⌥⌘T Tweaks panel: a standard titled window, user-placed, frame remembered",
     "palette": "⌥Space search palette (~/projects/claude-palette): on-demand, centred upper third, user-placed via hud-kit HUDWindow, frame remembered",
     "gif_picker": "⌃⌥⌘G GIF picker: a standard titled window, user-placed, frame remembered",
     "ps5_dashboard": "follows the controller cursor",
-    "quote_comment": "queued-count pill anchored to Claude's window above its message box, not a screen corner"
+    "readthrough_float": "Readthrough float (modules/readthrough_float.lua): anchored to Claude's window (right side, below its header), a standard utility window, user-placed, frame remembered",
+    "study_quiz": "hourly Logic quiz takeover (modules/study_quiz.lua): full-screen, modal, a few questions then gone",
+    "quote_comment": "queued-count pill anchored to Claude's window above its message box, not a screen corner",
+    "bottom_strip": "shared full-width bottom strip (modules/bottom_strip.lua): spans the whole bottom edge and pushes app windows up out of its way instead of sharing a corner; one shows at a time; floats over full-screen video when shown there"
   }
 }

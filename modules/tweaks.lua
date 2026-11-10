@@ -19,7 +19,9 @@
 -- File format (shared with hud-kit Tweaks.swift):
 --   { "app": "...", "tweaks": { "fade.hold": { "value": 1.2, "default": 1.2, "min": 0, ... } } }
 -- The part of a key before the first dot is its group in the panel. Missing knobs are
--- seeded into the file; value/min/max/step/note in the file win, default always comes from code.
+-- seeded into the file; value/min/max/step/note in the file win; default, kind and choices always come from code.
+-- min/max only bound the panel's slider: any typed number is kept. kind = "ease" makes the knob a curve picker
+-- (every CSS curve, modules/easing.lua), with choices as its suggested list.
 -- Every tweaks file is listed in ~/.hammerspoon/tweaks_registry.json for the panel.
 --
 -- The panel colours knobs that differ from their default, and can:
@@ -40,7 +42,7 @@ local HOME = os.getenv("HOME")
 M.dir = HOME .. "/.hammerspoon/tweaks"
 M.registry = HOME .. "/.hammerspoon/tweaks_registry.json"
 
-local FIELD_ORDER = { "value", "default", "min", "max", "step", "note", "choices" }
+local FIELD_ORDER = { "value", "default", "min", "max", "step", "note", "kind", "choices" }
 
 -- ── Pure functions (no hs.*), tested by tests/tweaks_test.lua ─────────────────
 
@@ -111,8 +113,14 @@ function M.merge(doc, app, knobs)
       out.tweaks[key] = knob
       changed = true
     end
-    for _, f in ipairs({ "min", "max", "step", "note", "choices" }) do
+    for _, f in ipairs({ "min", "max", "step", "note" }) do
       if knob[f] == nil and decl[f] ~= nil then knob[f] = decl[f]; changed = true end
+    end
+    -- What a knob is (kind = "ease") and its suggested choices are structure, so the code always wins.
+    for _, f in ipairs({ "kind", "choices" }) do
+      if decl[f] ~= nil and jsonLeaf(knob[f]) ~= jsonLeaf(decl[f]) then
+        knob[f] = decl[f]; changed = true
+      end
     end
     if knob.default ~= default then knob.default = default; changed = true end
     if type(knob.value) ~= type(default) then knob.value = default; changed = true end

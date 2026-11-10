@@ -25,8 +25,8 @@ local GROUPS = {
         "input_guard", "selection_wrap", "click_lock", "clipboard",
         "otp_copy" } },
     { title = "Music & Audio", icon = "🎹", ids = {
-        "qwerty_midi", "piano_hud", "song_key", "fade_skip", "wake_mute", "trackpad_mixer_summon" } },
-    { title = "Focus & Study", icon = "📚", ids = { "eye_breaks", "lecture_mode", "logic_editor" } },
+        "qwerty_midi", "piano_hud", "song_key", "fade_skip", "wake_mute", "bt_mic_guard", "trackpad_mixer_summon" } },
+    { title = "Focus & Study", icon = "📚", ids = { "eye_breaks", "lecture_mode", "logic_editor", "logic_keys" } },
     { title = "Mac & Devices", icon = "💻", ids = {
         "clamshell_guard", "tv_resync", "wifi_home", "ps5_dashboard", "cloud_mounter_guard", "tweaks_panel" } },
 }

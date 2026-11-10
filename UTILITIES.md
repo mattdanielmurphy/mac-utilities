@@ -17,6 +17,9 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 ### modules.click_lock
 **Mouse Click-Lock.** ⌘⌥-click holds the mouse button down so you can drag without holding it. Click again or press Escape to let go.
 
+### modules.side_buttons
+**Mouse Side Buttons.** The back and forward buttons on the side of your mouse go back and forward in every app, including Finder and others that ignore them on their own. Swap the two with `buttons.swap` in the Tweaks panel. Replaces SensibleSideButtons, so quit that app if you have it.
+
 ### modules.clipboard
 **Clipboard Cleaner.** When you copy text with duplicate lines, a small prompt pops up for 5 seconds. ⌥D removes the duplicates and ⌘Z undoes it. Its ⌥C and ⌥H buttons call two of Matt's own tools that aren't on your Mac, so they do nothing.
 
@@ -25,6 +28,12 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 
 ### modules.fade_skip
 **Fade Out Before Skipping.** The next and previous media keys fade the song out quickly before they skip. It works with Apple Music on its own. Other players need `brew install nowplaying-cli`.
+
+### modules.tv_brightness
+**TV Brightness Keys.** The brightness keys on your keyboard move your TV as well as the laptop screen, so you don't need Control Center. A small bar on the TV shows the level, ⌥⇧ takes quarter steps, and with no TV connected the keys work as usual. It finds the screen by name (`display.nameContains`, "TV" by default) and only works on screens macOS can dim itself, the ones with a brightness slider in Control Center. Step size, repeat speed and the bar are in the Tweaks panel (⌃⌥⌘T).
+
+### modules.bt_mic_guard
+**Keep Headphones Out of Call Mode.** Keeps Bluetooth headphones sounding right. macOS makes them the default mic when they connect, and the first app to use it drops them to phone-call quality. This moves the default mic to the Mac's own, so they stay in full quality. Off switch: guard.enabled in the Tweaks panel (⌃⌥⌘T).
 
 ### modules.wake_mute
 **Mute After Long Sleep.** Mutes your speakers when the Mac wakes from more than 10 minutes asleep or locked, so it never blasts audio in a quiet room. Short breaks don't trigger it.
@@ -44,11 +53,14 @@ Matt's Mac utilities, built on Hammerspoon. This is a list of the utilities from
 ### modules.logic_editor
 **Logic Symbol Editor.** ⌃⌘L opens a small editor for writing logic formulas (∧ ∨ ¬ → ↔ ∀ ∃) with shortcuts and a cheat sheet, then pastes the result into your app. It was made for a logic course.
 
+### modules.logic_keys
+**Logic Keys.** Hold a letter in any app and a small picker offers logic symbols, like Apple's accent popup: E ∃, A ∀ ∧, N ¬, O ∨, I →, B ↔, = ≠ ≡, T ⊢ ⊨ ⊤, S ∴, F ⊥, X ⊕. Press the number shown and the letter becomes the symbol. Normal typing is untouched, and holding on past 1.5 seconds gives normal key repeat back.
+
 ### modules.piano_hud
 **Piano Chord HUD.** While a MIDI keyboard is plugged in, a small overlay shows the chord you're playing. Click it for the chord's intervals, keys and modes. It also logs every note to `~/Documents/Piano Log/`.
 
 ### modules.song_key
-**Song Key HUD.** While music plays, a small pill shows the song's key, looked up on Hooktheory. It listens first and stays away for speech (podcasts, narrated videos, reels). Move the mouse over it and click the big Close button to hide it until the next song; it also fades by itself after a while. The ↗ corner opens the Hooktheory page. Needs `brew install nowplaying-cli`.
+**Song Key HUD.** While music plays, a thin "KEY  E maj" pill shows the song's key (looked up on Hooktheory) at the bottom edge. Rest the mouse on it and the full card pops up above it: key, sections, a keyboard of the scale, what it hears live; move away and it shrinks back. Click the pill (or press ⌃⌥⌘K) to keep the card open; × or ⌃⌥⌘K shrinks it again, and it shrinks by itself after 90 s (Tweaks › Song Key HUD). The pill's own × hides it until the next song. It stays away for speech (podcasts, narrated videos, reels) and drags like a window. The ↗ opens the Hooktheory page. Needs `brew install nowplaying-cli`.
 
 ### modules.otp_copy
 **2FA Code Auto-Copy.** When a verification code arrives by text (Messages) or email (Mail), it goes straight to your clipboard and a small pill shows it in the bottom-left corner. Google's "G-123456" codes copy as just the digits. Clipboard managers that respect hidden items won't save the code, and it's wiped from the clipboard after 2 minutes. Needs Full Disk Access for Hammerspoon (System Settings › Privacy & Security › Full Disk Access). Replaces apps like MessAuto or 2FHey; switch those off so codes don't get copied twice.

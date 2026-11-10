@@ -41,6 +41,7 @@ local T = tweaks.open{
 }
 
 local pending, reading, watcher, retry, poll, cutTimer, paused, resumeWatch = false, nil, nil, nil, nil, nil, false, nil
+local held, heldPaused = false, nil -- hold(true): the morning check-in is up, so nothing reads aloud
 -- Claude's own dictation (⌘D in the prompt); quote_comment watches whether its mic is on.
 -- The Claude app itself, by bundle id (a name lookup can match a helper or nothing useful).
 local function claude()
@@ -313,7 +314,7 @@ local waitLogged, lastClose = false, 0
 -- Reads the oldest queued reply that's on screen if Claude is in front; true once pressed.
 tryRead = function()
   local app = claude()
-  if reading or not (pending and app and app:isFrontmost()) then return false end
+  if held or reading or not (pending and app and app:isFrontmost()) then return false end
   -- Claude's mic is open. Usually that's our own auto-dictate, still listening with nothing said:
   -- close it so the new reply reads now (it used to wait until Matt sent, one reply behind).
   -- If the prompt has words in it, he's really dictating: wait.
@@ -367,8 +368,44 @@ startRetry = function()
   end)
 end
 
+-- Morning check-in: pause whatever Claude is reading, read nothing new, and afterwards carry on
+-- (Matt, 2026-11-05: read aloud started reading his message right when the check-in began).
+function M.hold(on)
+  if on then
+    if held then return "held" end
+    held = true
+    local b = reading
+    if b and not paused then
+      paused = true
+      heldPaused = b
+      if cutTimer then cutTimer:stop(); cutTimer = nil end
+      press(b)
+      unduck()
+      log("held for the morning check-in: paused the reading")
+    else
+      log("held for the morning check-in")
+    end
+    return "held"
+  end
+  if not held then return "not held" end
+  held = false
+  if heldPaused then
+    local b = heldPaused
+    heldPaused = nil
+    paused = false
+    if reading == b then
+      duck()
+      hs.timer.doAfter(0.6, function() press(b) end)
+      log("check-in over: resuming the reading")
+    end
+  end
+  return "released"
+end
+function M.isHeld() return held end
+
 function M.replyDone()
   pending = true
+  if held then return "held" end
   log(string.format("turn ended: %d queued%s", #queue(), reading and " (behind the one playing)" or ""))
   if reading then return "queued" end -- the running read picks it up when it ends
   stopRetry()

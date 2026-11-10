@@ -38,6 +38,13 @@ else
 fi
 
 echo shared > "$DEST/profile"
+# Keep Hammerspoon out of sight: no Dock or menu bar icon, no first-run Preferences window,
+# no console floating on top. The ⚙︎ menu is the only thing users see.
+HS=org.hammerspoon.Hammerspoon
+defaults write $HS MJShowDockIconKey -bool false
+defaults write $HS MJShowMenuIconKey -bool false
+defaults write $HS MJHasRunAlreadyKey -bool true
+defaults write $HS MJKeepConsoleOnTopKey -bool false
 echo "✓ Installed. Every utility starts off: turn them on from the ⚙︎ menu bar icon."
 
 if [ -z "${SUITE_NO_OPEN:-}" ]; then

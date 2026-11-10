@@ -18,7 +18,15 @@
 
 -- Feel knobs (⌃⌥⌘T Tweaks panel); found by bin/tweaks scan, kept by prune.
 local TWEAKS = {
-  ["timing.idleHide"] = { 60, min = 5, max = 300, step = 5, note = "Seconds without a note before the HUD fades out" },
+  ["timing.idleHide"] = { 120, min = 5, max = 600, step = 5, note = "Seconds without a note before the HUD fades out" },
+  ["timing.dismissQuiet"] = { 10, min = 0, max = 120, step = 1, note = "After you close the HUD (× or Esc), seconds of silence before a note brings it back" },
+  ["timing.peekSec"] = { 3, min = 0.5, max = 10, step = 0.5, note = "Seconds the keyboard strip pops back after a muted note in a key you know" },
+  ["muted.hold"] = { 0.6, min = 0.1, max = 3, step = 0.1, note = "Seconds a muted note's flash stays before fading" },
+  ["learn.learningMinutes"] = { 15, min = 1, max = 300, step = 1, note = "Minutes in a key before its full keyboard shrinks to one octave" },
+  ["learn.familiarMinutes"] = { 45, min = 1, max = 600, step = 5, note = "Minutes in a key (with few wrong notes) before the keyboard hides" },
+  ["learn.knownMinutes"] = { 120, min = 1, max = 900, step = 5, note = "Minutes in a key (with very few wrong notes) before only the key name shows" },
+  ["song.holdSec"] = { 8, min = 2, max = 120, step = 1, note = "After a song stops, seconds without a piano note before the panel leaves the song's key" },
+  ["learn.knownKeys"] = { "C,G,F,E", note = "Major keys you already know: they never show the keyboard (comma-separated, e.g. C,G,F,E,Bb)" },
   ["fade.duration"] = { 0.4, min = 0.05, max = 2, step = 0.05, note = "Seconds for the HUD show/hide fade" },
   ["timing.settleMs"] = { 80, min = 10, max = 400, step = 10, note = "Milliseconds a held shape must be stable to count as last chord" },
   ["look.width"] = { 300, min = 200, max = 600, step = 10, note = "HUD width in pixels" },
@@ -43,6 +51,9 @@ local layout = require("modules.hud_layout")
 local CFG = {
   LOG_DIR    = os.getenv("HOME") .. "/Documents/Piano Log",
   IDLE_HIDE = T("timing.idleHide"),       -- seconds without a note before the HUD fades out
+  DISMISS_QUIET = T("timing.dismissQuiet"), -- silence needed before a closed HUD comes back
+  PEEK = T("timing.peekSec"),             -- keyboard pops back this long after a muted note
+  MUTED_HOLD = T("muted.hold"),
   FLUSH      = 2,        -- seconds between log file writes
   FADE = T("fade.duration"),      -- show/hide fade (seconds)
   SETTLE_MS = T("timing.settleMs"),       -- a held shape must be stable this long to become "last chord"
@@ -244,7 +255,7 @@ end
 
 -- ── HUD ────────────────────────────────────────────────────────────────────────
 local HTML = [[
-<!doctype html><html><head><meta charset="utf-8"><style>
+<!doctype html><html><head><meta charset="utf-8">@GUARD@<style>
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
     font-family: -apple-system, "SF Pro Display", sans-serif; -webkit-user-select: none; }
   .panel { position: absolute; right: 0; bottom: 0; width: ]] .. CFG.WIDTH .. [[px;
@@ -253,7 +264,7 @@ local HTML = [[
   .label  { position: absolute; left: 20px; top: 14px; font-size: 11px;
     letter-spacing: 0.08em; color: rgba(244, 241, 234, 0.6); }
   .chord  { position: absolute; left: 20px; top: 32px; right: 20px; font-size: 48px;
-    font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; white-space: nowrap; overflow: hidden;
     transition: opacity 0.3s; }
   .detail { position: absolute; left: 20px; top: 94px; right: 20px; font-size: 13px;
     color: rgba(244, 241, 234, 0.75); white-space: nowrap; transition: opacity 0.3s; }
@@ -274,12 +285,68 @@ local HTML = [[
   .card .head { font-size: 11px; letter-spacing: 0.08em; color: rgba(244, 241, 234, 0.6);
     margin-bottom: 2px; }
   .card .row { color: rgba(244, 241, 234, 0.9); }
-</style></head><body>
+
+  /* ── Key-of-the-week panel (shown while the piano key-lock is on) ──
+     Built on Slub Guard (modules/guard_kit.lua, look A): rows have fixed heights, live text stays on one
+     line, controls never shrink, colours come by role from the palette seeds. Only the keyboard strip and
+     the letters row below are drawn here; they use the guard roles too. */
+  .kp { position: absolute; right: 0; bottom: 0; --g-w: ]] .. CFG.WIDTH .. [[px; display: none; cursor: default;
+    --white: var(--g-key-white); --offwhite: var(--g-sunk); --black: var(--g-key-black); --offblack: var(--g-line-strong);
+    --ink: var(--g-text); --soft: var(--g-soft); --line: var(--g-line); --accent: var(--g-accent); --mutedInk: var(--g-danger); }
+  /* Keys stay light in both schemes, so letters and the tonic dot on white keys use dark key ink; in dark,
+     out-of-key white keys stay a mid tone so they never read as black keys. */
+  .kp { --keyInk: var(--g-text); --keySoft: var(--g-soft); }
+  @media (prefers-color-scheme: dark) { .kp { --offwhite: var(--g-faint); --offblack: var(--g-line);
+    --keyInk: var(--g-key-black); --keySoft: color-mix(in oklab, var(--g-key-black) 72%, var(--g-key-white)); } }
+  #kpHold, #kpMuted { font-family: var(--g-font-round); }
+  .kp-name { flex: 0 1 auto; }
+  .kp-weekly { display: none; }
+  .kp-muted { transition: opacity 0.5s; }
+  .kp-hint { text-align: right; }
+  .kp-song { display: none; }
+  .kp-strip { position: relative; margin: 2px 0 4px; display: none; }
+  .k { position: absolute; top: 0; box-sizing: border-box; border-radius: 0 0 3px 3px; }
+  .k.w { background: var(--offwhite); border: 1px solid var(--line); }
+  .k.w.in { background: var(--white); }
+  .k.b { background: var(--offblack); z-index: 2; }
+  .k.b.in { background: var(--black); }
+  .k.held { background: var(--accent) !important; box-shadow: 0 0 8px var(--accent); }
+  .k .lt { position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-size: 9px; color: var(--keySoft); }
+  .k.tonic .lt { color: var(--keyInk); font-weight: 600; }
+  .k.tonic::after { content: ""; position: absolute; left: 50%; bottom: 14px; width: 6px; height: 6px;
+    margin-left: -3px; border-radius: 3px; background: var(--keyInk); }
+  .k.b.tonic::after { background: var(--white); bottom: 4px; }
+  /* held wins over tonic / black-key colours (comes after them on purpose) */
+  .k.held .lt, .k.held.tonic .lt { color: var(--g-accent-ink); font-weight: 600; }
+  .k.held.tonic::after, .k.b.held.tonic::after { background: var(--g-accent-ink); }
+  .k.muted { outline: 1.5px dashed var(--mutedInk); outline-offset: -2px; animation: mute 1s ease-out; }
+  @keyframes mute { 0% { opacity: 0.4 } 8% { opacity: 1 } 100% { opacity: 1 } }
+  .kp-letters { display: none; gap: 4px; white-space: nowrap; overflow: hidden; font: 500 15px/20px var(--g-font-round); height: 20px; }
+  .kp-letters span { color: var(--soft); padding: 0 3px; border-radius: 3px; }
+  .kp-letters .tonic { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--accent);
+    text-decoration-thickness: 3px; text-underline-offset: 3px; }
+  .kp-letters .held { color: var(--g-accent-ink); background: var(--g-accent); }
+  .kp-letters .tonic.held { text-decoration-color: var(--g-accent-ink); }
+</style></head><body class="g">
 <div class="card" id="card"></div>
+<div class="kp g-panel" id="kp">
+  <div class="g-row h18 kp-top"><span class="g-label g-keep" id="kpLabel">Key of the week</span>
+    <span class="g-grow"></span>
+    <span class="g-chip kp-weekly" id="kpWeekly" title="Go back to this week's key">back to weekly</span>
+    <span class="g-kbd">Esc</span><button class="g-icon" id="kpX" title="Hide (Esc). Hides on its own after 2 idle minutes and comes back when you play again">×</button></div>
+  <div class="g-row h18 kp-song" id="kpSongRow"><span class="g-live g-strong" id="kpSong"></span></div>
+  <div class="g-row h28"><button class="g-arrow" id="kpPrev" title="Previous key (one flat more)">‹</button>
+    <span class="g-title g-live kp-name" id="kpName">C major</span><span class="g-sub g-give" id="kpRel"></span>
+    <button class="g-arrow" id="kpNext" title="Next key (one sharp more)">›</button></div>
+  <div class="kp-strip" id="kpStrip"></div>
+  <div class="kp-letters" id="kpLetters"></div>
+  <div class="g-row h18 g-hint"><span class="g-label g-keep" id="kpHoldLbl"></span><span class="g-strong g-keep" id="kpHold"></span>
+    <span class="g-bad g-keep kp-muted" id="kpMuted"></span><span class="g-give kp-hint" id="kpHint"></span></div>
+</div>
 <div class="panel" id="panel">
   <div class="label" id="label">NOW HOLDING</div>
   <div class="save" id="save" title="Save this session as a MIDI file">Save MIDI</div>
-  <div class="chord" id="chord">–</div>
+  <div class="chord g-live" id="chord">–</div>
   <div class="detail" id="detail">&nbsp;</div>
   <div class="notes" id="notes">&nbsp;</div>
 </div><script>
@@ -327,22 +394,195 @@ local HTML = [[
     send({ type: 'cardHeight', h: card.offsetHeight });
   }
   function hideCard() { document.getElementById('card').style.display = 'none'; }
+
+  // ── Key-of-the-week panel ──
+  function pretty(n) { return String(n).replace(/#/g, '♯').replace(/([A-G])b/g, '$1♭'); }
+  // Drag the panel anywhere that isn't a control (shared modules/hud_move.lua); double-click the
+  // top row to send it back to its slot.
+  document.getElementById('kp').addEventListener('mousedown', function (e) {
+    if (e.button === 0 && !e.target.closest('.g-icon, .g-arrow, .kp-weekly')) send({ type: 'dragStart' });
+  });
+  document.querySelector('.kp-top').addEventListener('dblclick', function (e) {
+    if (!e.target.closest('.g-icon, .kp-weekly')) send({ type: 'dragReset' });
+  });
+  ['kpX', 'kpPrev', 'kpNext', 'kpWeekly'].forEach(function (id) {
+    document.getElementById(id).addEventListener('mousedown', function (e) {
+      e.stopPropagation(); send({ type: id });
+    });
+  });
+  var WHITE = [0, 2, 4, 5, 7, 9, 11], BLACK = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+  function strip(d, octs, ww, h, letters) {
+    var inKey = {}, held = {}, html = '';
+    d.pcs.forEach(function (pc, i) { inKey[pc] = d.names[i]; });
+    d.held.forEach(function (pc) { held[pc] = true; });
+    var bw = Math.round(ww * 0.62), bh = Math.round(h * 0.6);
+    function cls(pc, kind) {
+      return 'k ' + kind + (inKey[pc] !== undefined ? ' in' : '') + (pc === d.tonic ? ' tonic' : '') +
+        (held[pc] ? ' held' : '') + (pc === d.muted ? ' muted' : '');
+    }
+    for (var o = 0; o < octs; o++) {
+      WHITE.forEach(function (pc, i) {
+        var lt = letters && inKey[pc] !== undefined ? '<span class="lt">' + pretty(inKey[pc]) + '</span>' : '';
+        html += '<div class="' + cls(pc, 'w') + '" style="left:' + ((o * 7 + i) * ww) + 'px;width:' + (ww + 1) +
+          'px;height:' + h + 'px">' + lt + '</div>';
+      });
+      Object.keys(BLACK).forEach(function (k) {
+        var pc = +k, left = (o * 7 + BLACK[k] + 1) * ww - bw / 2;
+        html += '<div class="' + cls(pc, 'b') + '" style="left:' + left + 'px;width:' + bw + 'px;height:' + bh + 'px"></div>';
+      });
+    }
+    var el = document.getElementById('kpStrip');
+    el.innerHTML = html; el.style.height = h + 'px'; el.style.width = (octs * 7 * ww + 1) + 'px';
+    el.style.display = 'block';
+  }
+  var mutedTimer = null;
+  function keyUpdate(d) {
+    document.getElementById('panel').style.display = 'none';
+    var kp = document.getElementById('kp'); kp.style.display = 'flex';
+    document.getElementById('kpLabel').textContent = d.label;
+    document.getElementById('kpSong').textContent = d.song ? '♪ ' + d.song : '';
+    document.getElementById('kpSongRow').style.display = d.song ? 'flex' : 'none';
+    document.getElementById('kpName').textContent = pretty(d.name);
+    document.getElementById('kpRel').textContent = d.rel ? pretty(d.rel) : '';
+    document.getElementById('kpWeekly').style.display = d.manual ? 'block' : 'none';
+    var st = document.getElementById('kpStrip'), lt = document.getElementById('kpLetters');
+    st.style.display = 'none'; lt.style.display = 'none';
+    var view = d.peek ? 1 : d.stage;
+    if (view === 1) strip(d, 2, 19, 58, true);
+    else if (view === 2) strip(d, 1, 17, 36, false);
+    if (view === 2 || view === 3) {
+      var held = {}; d.held.forEach(function (pc) { held[pc] = true; });
+      var order = d.pcs.map(function (pc, i) { return [pc, d.names[i] ]; });
+      var start = order.findIndex(function (x) { return x[0] === d.tonic; });
+      order = order.slice(start).concat(order.slice(0, start));
+      lt.innerHTML = order.map(function (x) {
+        return '<span class="' + (x[0] === d.tonic ? 'tonic ' : '') + (held[x[0] ] ? 'held' : '') + '">' + pretty(x[1]) + '</span>';
+      }).join('');
+      lt.style.display = 'flex';
+    }
+    document.getElementById('kpHoldLbl').textContent = d.hold ? (d.past ? 'LAST' : 'HOLDING') : '';
+    document.getElementById('kpHold').textContent = d.hold ? pretty(d.hold) : '';
+    var m = document.getElementById('kpMuted');
+    if (d.mutedName) { m.textContent = pretty(d.mutedName) + ' muted'; m.style.opacity = 1; }
+    else { m.style.opacity = 0; }
+    Guard.fit(document.getElementById('kpHint'), d.hintParts || [d.hint]);
+    send({ type: 'kpHeight', h: kp.offsetHeight });
+  }
+  function keyOff() {
+    document.getElementById('kp').style.display = 'none';
+    document.getElementById('panel').style.display = 'block';
+  }
 </script></body></html>
 ]]
+
+-- Palette roles (Tweaks → "Slub palette"); fallbacks are the Apothecary seeds.
+local function pageHtml()
+  local ok, p = pcall(require, "modules.slub_palette")
+  local seeds = ok and p.seeds and p.seeds() or nil
+  local accent = seeds and seeds.accent or "#adcd4a"
+  local danger = seeds and seeds.danger or "#7a001d"
+  return require("modules.guard_kit").inject((HTML:gsub("@ACCENT@", accent):gsub("@DANGER@", danger)))
+end
+
+M.pageHtml = pageHtml   -- test hook: render the page in a browser
+
+-- ── Key of the week (piano key-lock on) ───────────────────────────────────────
+-- While modules/piano_lock.lua mutes out-of-key notes, the panel becomes a keyboard
+-- strip for the active note set. The strip shrinks per key as you learn it
+-- (modules/key_familiarity.lua): 1 new = two octaves with letters, 2 learning = one
+-- octave + letters, 3 familiar = letters only, 4 known = key name only. A muted note
+-- flashes on the strip and pops the full strip back for PEEK seconds.
+local okLock, lock = pcall(require, "scale_lock")
+local fam = require("modules.key_familiarity")
+fam.load()
+local FIFTHS = { "C", "G", "D", "A", "E", "B", "F#", "Db", "Ab", "Eb", "Bb", "F" }
+local FIFTH_PC = { 0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5 }
+
+local function lockState()
+  if not okLock then return nil end
+  local ok, st = pcall(lock.getState)
+  if not ok or type(st) ~= "table" or st.mode == "off" or not st.pitchClasses then return nil end
+  return st
+end
+
+-- Song title without version tags ("(Remastered 2011)", "- 2011 Remaster", "[Live]"), so the name fits.
+function M.shortTitle(t)
+  t = tostring(t or "")
+  local tags = { "remaster", "live", "version", "mono", "stereo", "edit", "mix", "deluxe", "bonus", "single", "demo" }
+  local function isTag(x) x = x:lower(); for _, k in ipairs(tags) do if x:find(k, 1, true) then return true end end return false end
+  t = t:gsub("%s*[%(%[]([^%)%]]*)[%)%]]", function(x) return isTag(x) and "" or nil end)
+  t = t:gsub("%s+%-%s+(.+)$", function(x) return isTag(x) and "" or nil end)
+  return (t:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- ── Follow the song (modules/song_key.lua) ─────────────────────────────────────
+-- While music with a known key plays on the Mac, the lock and the panel switch to the
+-- song's key. When the song stops, the song key stays while you keep playing; after
+-- SONG_HOLD seconds with neither the song nor a piano note, it goes back to what was
+-- there before (the weekly key, or your own pick).
+local ASCII = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" }
+local song = { applied = nil, title = nil, last = 0, before = nil }
+
+local function followSong()
+  local st = lockState()
+  if not st then return end
+  local sk = package.loaded["modules.song_key"]
+  local k = sk and sk.currentKey and sk.currentKey() or nil
+  local now = hs.timer.secondsSinceEpoch()
+  if k then
+    local title = k.title or ""
+    song.last, song.title = now, M.shortTitle(title)
+    local name = ASCII[k.tonic + 1] .. " " .. k.mode
+    if song.applied ~= name and song.want ~= name then
+      if not song.applied then song.before = st.mode == "manual" and st.current or "weekly" end
+      song.want = name
+      local ok, canonical = lock.setScale(name)
+      if ok then song.applied = canonical; print("🎹 piano_hud: following the song's key, " .. canonical)
+      else print("⚠️ piano_hud: can't follow song key " .. name .. ": " .. tostring(canonical)) end
+    end
+  elseif song.applied then
+    local idle = math.min(now - song.last, now - state.lastEvent)
+    if idle >= T("song.holdSec") then
+      -- Only undo our own switch: if you picked a key since, leave it.
+      if st.mode == "manual" and st.current == song.applied then lock.setScale(song.before or "weekly") end
+      print("🎹 piano_hud: song key over, back to " .. tostring(song.before))
+      song.applied, song.want, song.title, song.before = nil, nil, nil, nil
+    end
+  end
+end
+
+local function syncFamConfig()
+  fam.config.learningMinutes = T("learn.learningMinutes")
+  fam.config.familiarMinutes = T("learn.familiarMinutes")
+  fam.config.knownMinutes = T("learn.knownMinutes")
+  fam.config.known = T("learn.knownKeys")
+end
 
 -- Window frame: the panel alone, or the panel plus the card above it. The panel's
 -- bottom-right corner stays put either way (the page anchors it bottom-right).
 -- Anchored at the "piano_hud" slot in hud_slots.json; the card grows into "piano_card".
+local move = require("modules.hud_move")
+local function slotRect(w, h)
+  -- Where Matt last dragged it (any display), pinned at its bottom-right corner; else the slot.
+  return move.anchored("piano_hud", w, h) or layout.rect("piano_hud", w, h)
+end
 local function hudRect()
+  if state.keyMode then
+    return slotRect(CFG.WIDTH, math.max(60, state.kpHeight or CFG.HEIGHT))
+  end
   local w, h = CFG.WIDTH, CFG.HEIGHT
   if state.cardOpen and state.cardHeight > 0 then
     w = math.max(CFG.WIDTH, CFG.CARD_WIDTH)
     h = CFG.HEIGHT + CFG.CARD_GAP + state.cardHeight
   end
-  return layout.rect("piano_hud", w, h)
+  return slotRect(w, h)
+end
+-- Puts the window at hudRect(), except mid-drag (the mouse owns it then).
+local function place(wv)
+  if wv and not move.dragging("piano_hud") then wv:frame(hudRect()) end
 end
 
-local render, closeCard
+local render, closeCard, hideHud
 
 -- Writes the latest session to ~/Documents/Piano Log/MIDI/ and selects it in Finder.
 -- The converter runs as a task so the main thread (and every key tap) never waits on it.
@@ -375,9 +615,31 @@ local function onMessage(msg)
     M.saveMidi()
   elseif body.type == "toggle" then
     if state.cardOpen then closeCard() else M.openCard() end
+  elseif body.type == "kpHeight" then
+    state.kpHeight = tonumber(body.h) or state.kpHeight
+    if state.keyMode then place(activeWatchers.pianoHudView) end
+  elseif body.type == "dragStart" and activeWatchers.pianoHudView then
+    move.begin("piano_hud", activeWatchers.pianoHudView, { onEnd = function(_, didMove)
+      if didMove then state.lastEvent = hs.timer.secondsSinceEpoch() end
+    end })
+  elseif body.type == "dragReset" and activeWatchers.pianoHudView then
+    move.reset("piano_hud")
+    activeWatchers.pianoHudView:frame(hudRect())
+  elseif body.type == "kpX" then
+    M.dismiss()
+  elseif (body.type == "kpPrev" or body.type == "kpNext") and okLock then
+    local st = lockState()
+    local i = 1
+    for k, pc in ipairs(FIFTH_PC) do if st and pc == st.root then i = k end end
+    i = ((i - 1 + (body.type == "kpNext" and 1 or -1)) % 12) + 1
+    lock.setScale(FIFTHS[i] .. " major")
+    state.lastEvent = hs.timer.secondsSinceEpoch()
+  elseif body.type == "kpWeekly" and okLock then
+    lock.setScale("weekly")
+    state.lastEvent = hs.timer.secondsSinceEpoch()
   elseif body.type == "cardHeight" and state.cardOpen then
     state.cardHeight = tonumber(body.h) or 0
-    if activeWatchers.pianoHudView then activeWatchers.pianoHudView:frame(hudRect()) end
+    place(activeWatchers.pianoHudView)
   end
 end
 
@@ -396,7 +658,7 @@ local function ensureHud()
     :level(hs.drawing.windowLevels.floating)
     :behaviorAsLabels({ "canJoinAllSpaces", "stationary" })
     :allowTextEntry(false)
-    :html(HTML)
+    :html(pageHtml())
   activeWatchers.pianoHudView = wv
   return wv
 end
@@ -412,11 +674,76 @@ function render(c, past)
   if c ~= nil or past ~= nil then state.shown, state.shownPast = c, past or false end
   local wv = ensureHud()
   if not state.ready then return end
+  local st = lockState()
+  if st then return M.keyRender(st) end
+  if state.keyMode then
+    state.keyMode = false
+    wv:evaluateJavaScript("keyOff()")
+    place(wv)
+  end
   c, past = state.shown, state.shownPast
   local d = c and { name = c.name, detail = c.detail, notes = c.notes, past = past }
     or { name = "–", detail = "", notes = "", past = false }
   wv:evaluateJavaScript("update(" .. hs.json.encode(d) .. ")")
   if state.cardOpen then M.openCard() end
+end
+
+local HINTS = {   -- { stage, extra }; the extra is dropped first when the panel has no room
+  { "New key", "shrinks as you learn it" },
+  { "Learning" },
+  { "Familiar", "keys pop back if you slip" },
+  { "Known key" },
+}
+
+-- Draws the key-of-the-week panel for scale_lock state st.
+function M.keyRender(st)
+  local wv = activeWatchers.pianoHudView
+  if not wv or not state.ready then return end
+  syncFamConfig()
+  local now = hs.timer.secondsSinceEpoch()
+  local inSet = {}
+  for _, pc in ipairs(st.pitchClasses) do inSet[pc] = true end
+  local heldPcs, inKeyHeld, seen = {}, {}, {}
+  for _, n in pairs(state.held) do
+    local pc = n % 12
+    if inSet[pc] then
+      inKeyHeld[#inKeyHeld + 1] = n
+      if not seen[pc] then seen[pc] = true; heldPcs[#heldPcs + 1] = pc end
+    end
+  end
+  local hold, past = nil, false
+  if #inKeyHeld > 0 then
+    local c = M.nameChord(inKeyHeld); hold = c and c.name
+  elseif state.shown and state.shownPast then
+    hold, past = state.shown.name, true
+  end
+  local info = fam.info(st.pitchClasses)
+  local muted = state.muted and now < state.muted.untilT and state.muted.pc or nil
+  local name, rel = tostring(st.current or ""):match("^(.-)%s*/%s*(.+)$")
+  -- Hint parts in priority order (the panel drops whole parts from the end, never cuts a word).
+  local stage = HINTS[info.stage] or HINTS[1]
+  local hintParts = { stage[1] }
+  if info.minutes > 0 then
+    hintParts[#hintParts + 1] = info.minutes .. " min"
+    -- Most recent notes outside this key but fitting another one: say which, not "% wrong".
+    local other = fam.otherKey(st.pitchClasses)
+    if other then hintParts[#hintParts + 1] = "sounds like " .. other.name
+    elseif info.notes > 20 then hintParts[#hintParts + 1] = info.wrongPct .. "% wrong" end
+  end
+  if stage[2] then hintParts[#hintParts + 1] = stage[2] end
+  local hint = table.concat(hintParts, " · ")
+  local d = {
+    label = (song.applied and st.current == song.applied) and "Song key"
+      or st.mode == "manual" and "Your pick" or ("Week " .. ((st.week or 0) + 1) .. " key"),
+    name = name or st.current, rel = rel, manual = st.mode == "manual",
+    pcs = st.pitchClasses, names = st.noteNames, tonic = st.root,
+    held = heldPcs, stage = info.stage, peek = state.peekUntil ~= nil and now < state.peekUntil,
+    muted = muted, mutedName = muted and noteName(muted) or nil,
+    hold = hold, past = past, hint = hint, hintParts = hintParts,
+    song = (song.applied and st.current == song.applied) and song.title or nil,
+  }
+  state.keyMode = true
+  wv:evaluateJavaScript("keyUpdate(" .. hs.json.encode(d) .. ")")
 end
 
 local function remember(list)
@@ -435,7 +762,7 @@ function closeCard()
   local wv = activeWatchers.pianoHudView
   if wv then
     wv:evaluateJavaScript("hideCard()")
-    wv:frame(hudRect())
+    place(wv)
   end
 end
 M.closeCard = function() closeCard() end
@@ -470,15 +797,34 @@ function M.openCard()
   end
 end
 
+local function stopEscWatch()
+  if activeWatchers.pianoHudEsc then activeWatchers.pianoHudEsc:stop(); activeWatchers.pianoHudEsc = nil end
+end
+
 local function showHud()
   if state.visible then return end
   local wv = ensureHud()
-  wv:frame(hudRect())
+  place(wv)
   wv:show(CFG.FADE)
   state.visible = true
+  -- Esc closes the key panel (never swallowed: the key still reaches the app in front).
+  stopEscWatch()
+  activeWatchers.pianoHudEsc = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
+    if state.keyMode and not state.cardOpen and e:getKeyCode() == hs.keycodes.map.escape then
+      hs.timer.doAfter(0, M.dismiss)
+    end
+    return false
+  end):start()
 end
 
-local function hideHud()
+-- Closes the HUD until the next note that follows DISMISS_QUIET seconds of silence.
+function M.dismiss()
+  state.dismissed = true
+  hideHud()
+end
+
+function hideHud()
+  stopEscWatch()
   if not state.visible then return end
   closeCard()
   if activeWatchers.pianoHudView then activeWatchers.pianoHudView:hide(CFG.FADE) end
@@ -503,8 +849,35 @@ local function onMidi(_, devName, cmd, _, meta)
   end
   local note, vel = meta.note, meta.velocity or 0
   local key = devName .. ":" .. ch .. ":" .. note
-  state.lastEvent = hs.timer.secondsSinceEpoch()
-  showHud()
+  local now = hs.timer.secondsSinceEpoch()
+  local quiet = now - state.lastEvent
+  state.lastEvent = now
+  local isOn = cmd == "noteOn" and vel > 0
+  if state.dismissed and isOn and quiet >= CFG.DISMISS_QUIET then state.dismissed = false end
+  if not state.dismissed then showHud() end
+  if isOn then
+    local st = lockState()
+    if st then
+      local inKey = lock.isAllowed(note)
+      if devName ~= "simulated" then fam.record(st.pitchClasses, inKey, now, st.current); fam.notePlayed(note, st.pitchClasses) end
+      if not inKey then
+        state.muted = { pc = note % 12, untilT = now + CFG.MUTED_HOLD }
+        if fam.stage(st.pitchClasses) >= 2 then state.peekUntil = now + CFG.PEEK end
+        if activeWatchers.pianoHudMuteTimer then activeWatchers.pianoHudMuteTimer:stop() end
+        activeWatchers.pianoHudMuteTimer = hs.timer.doAfter(CFG.MUTED_HOLD + 0.05, function()
+          activeWatchers.pianoHudMuteTimer = nil
+          if state.visible then render() end
+        end)
+        if state.peekUntil and state.peekUntil > now then
+          if activeWatchers.pianoHudPeekTimer then activeWatchers.pianoHudPeekTimer:stop() end
+          activeWatchers.pianoHudPeekTimer = hs.timer.doAfter(CFG.PEEK + 0.05, function()
+            activeWatchers.pianoHudPeekTimer = nil
+            if state.visible then render() end
+          end)
+        end
+      end
+    end
+  end
   if cmd == "noteOn" and vel > 0 then
     state.held[key] = note
     logEvent({ type = "on", note = note, vel = vel, ch = ch, dev = devName })
@@ -560,20 +933,35 @@ function M.start()
 
   activeWatchers.pianoHudTimer = hs.timer.doEvery(CFG.FLUSH, function()
     flush()
+    fam.save()
+    followSong()
     if state.visible and hs.timer.secondsSinceEpoch() - state.lastEvent > CFG.IDLE_HIDE then
       state.held = {}
       hideHud()
     end
   end)
 
+  if okLock then
+    lock.on("piano_hud", function()
+      hs.timer.doAfter(0, function() if state.visible then render() end end)
+    end)
+  end
+
   activeWatchers.pianoHudScreens = hs.screen.watcher.new(function()
-    if activeWatchers.pianoHudView then activeWatchers.pianoHudView:frame(hudRect()) end
+    place(activeWatchers.pianoHudView)
   end):start()
 end
 
 function M.stop()
   flush()
+  fam.save()
   stopCardWatch()
+  stopEscWatch()
+  if okLock then lock.off("piano_hud") end
+  for _, k in ipairs({ "pianoHudMuteTimer", "pianoHudPeekTimer" }) do
+    if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
+  end
+  state.keyMode, state.dismissed, state.muted, state.peekUntil = false, false, nil, nil
   hs.midi.deviceCallback(nil)
   for _, dev in pairs(state.devices) do dev:callback(nil) end
   state.devices, state.held = {}, {}
@@ -596,6 +984,7 @@ function M.status()
   local wv = activeWatchers.pianoHudView
   local f = wv and wv:frame()
   return { visible = wv and wv:isVisible() or false, cardOpen = state.cardOpen,
+           keyMode = state.keyMode or false, dismissed = state.dismissed or false,
            shown = state.shown and state.shown.name, past = state.shownPast,
            frame = f and string.format("%d,%d %dx%d", f.x, f.y, f.w, f.h) }
 end

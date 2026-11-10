@@ -130,11 +130,25 @@ local function restoreFullscreen(t)
   hs.timer.doAfter(0.3, function() pcall(function() w:setFullScreen(true) end) end)
 end
 
+-- The granted holder survives a Hammerspoon reload (2026-11-05: an agent got a
+-- --light grant, ran hs.reload(), and kept working with no pill on screen).
+-- Saved on grant, cleared when it ends; start() redraws it.
+local HOLD_SAVE = "claudeControl.holder"
+local ID_SAVE = "claudeControl.nextId"
+local function saveHolder(id)
+  local t = id and tickets[id]
+  if not t then hs.settings.set(HOLD_SAVE, nil); return end
+  hs.settings.set(HOLD_SAVE, { id = id, reason = t.reason, light = t.light, agent = t.agent,
+    pid = t.pid, link = t.link, quiet = t.quiet, at = hs.timer.secondsSinceEpoch() })
+end
+
 local ENDED = { done = true, cancelled = true, stopped = true, preempted = true, error = true, timedout = true, dropped = true }
 local function setState(s)
   state = s
   local t = active and tickets[active]
   if t then t.state = s; if ENDED[s] then restoreFullscreen(t) end end
+  if s == "granted" and t and not t.quiet then saveHolder(active)
+  elseif ENDED[s] or s == "idle" then saveHolder(nil) end
 end
 
 local function hideGlow()
@@ -190,7 +204,7 @@ local function drawGlow()
 end
 
 -- Tell Karabiner the banner is up, so a held Caps Lock sends a held Escape
--- (it only does that in Glass TV and while this banner shows).
+-- (it only does that in Mattinee and while this banner shows).
 local KCLI = "/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
 local bannerFlag = nil
 local function setBannerFlag(on)
@@ -776,6 +790,7 @@ function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key, bg)
     return byKey[key]
   end
   nextId = nextId + 1
+  hs.settings.set(ID_SAVE, nextId)  -- ids never repeat across reloads, so a stale `done t1` can't end a new holder
   local id = "t" .. nextId
   tickets[id] = { reason = reason or "Running a quick test", seconds = seconds, urgent = urgent and true or false,
                   quiet = quiet and true or false, state = "queued", seen = hs.timer.secondsSinceEpoch(),
@@ -810,15 +825,26 @@ end
 -- For Hammerspoon modules: runs fn(release) right away if nobody holds input,
 -- else when its turn comes. Call release() when done (it's also called if fn
 -- returns without taking the argument, i.e. fn has no async steps).
-function M.withInput(name, fn)
-  local id = M.lock(name)
+-- opts.visible (2026-11-08, after the field pill pasted and sent ambient mic text into
+-- Claude with nothing on screen): show the light pill for opts.seconds (default 1) before
+-- fn runs, so the input is visible and a held Esc cancels it. Required for any automation
+-- whose input isn't a direct, instant result of a key Matt pressed (typed/pasted text from
+-- dictation or an AI, timers, background triggers). Plain hotkey remaps may stay quiet.
+function M.withInput(name, fn, opts)
+  opts = opts or {}
+  local id
+  if opts.visible then
+    id = M.ask(name, opts.seconds or 1, false, false, nil, nil, true, nil, nil, true)
+  else
+    id = M.lock(name)
+  end
   local function release() M.done(id) end
   local function go()
     local ok, err = pcall(fn, release)
     if not ok then print("claude_control withInput " .. tostring(name) .. ": " .. tostring(err)) end
     if debug.getinfo(fn, "u").nparams == 0 or not ok then release() end
   end
-  if active == id then return go() end
+  if active == id and tickets[id] and tickets[id].state == "granted" then return go() end
   local poll
   poll = hs.timer.doEvery(0.1, function()
     local t = tickets[id]
@@ -968,16 +994,38 @@ function M.demo(tier, link, text)
   return id
 end
 
+-- After a reload: put a still-granted holder's banner/pill back on screen.
+local function restoreHolder()
+  local h = hs.settings.get(HOLD_SAVE)
+  hs.settings.set(HOLD_SAVE, nil)
+  if not (h and h.id) or active then return end
+  if hs.timer.secondsSinceEpoch() - (h.at or 0) > MAX_HOLD then return end
+  tickets[h.id] = { reason = h.reason, seconds = 1, state = "queued", seen = hs.timer.secondsSinceEpoch(),
+                    polled = true, agent = h.agent, pid = h.pid, light = h.light, bg = true, link = h.link }
+  active = h.id
+  begin(h.reason, 1, h.light, false)
+  grant(h.id)
+  render()
+  print("claude_control: restored " .. h.id .. " after reload: " .. tostring(h.reason))
+end
+M._restoreHolder = restoreHolder
+
 function M.start()
   _G.claudeControl = M
+  nextId = math.max(nextId, tonumber(hs.settings.get(ID_SAVE)) or 0)
+  -- on a timer: drawing canvases during module load can race the reload
+  activeWatchers.claudeControlRestore = hs.timer.doAfter(0.5, restoreHolder)
   hs.urlevent.bind("claude-control-demo", function(_, params) M.demo(params and params.tier, params and params.link, params and params.text) end)
 end
 
 function M.stop()
   hs.urlevent.bind("claude-control-demo", nil)
   disarmStop()
+  -- a reload calls stop(): keep the saved holder so start() can redraw it
+  local h = hs.settings.get(HOLD_SAVE)
   hideBanner()
   setState("idle")
+  hs.settings.set(HOLD_SAVE, h)
   active, queue = nil, {}
 end
 

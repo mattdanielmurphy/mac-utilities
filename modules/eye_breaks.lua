@@ -84,6 +84,8 @@ local T = require("modules.tweaks").open{
     ["defer.dictateQuiet"] = { 6, min = 1, max = 30, step = 1, note = "Hold the eye break until Claude dictation has been off this many seconds (no cap)" },
     ["defer.max"]      = { 120, min = 10, max = 600, step = 10, note = "Longest the eye break waits for typing / read-aloud before showing anyway" },
     ["snooze.after"]   = { 60, min = 10, max = 600, step = 5, note = "Seconds before an early-dismissed eye break comes back" },
+    ["busy.cancels"]   = { 2, min = 1, max = 6, step = 1, note = "Cancels in a row that mean you're busy and all breaks go quiet" },
+    ["busy.quietMinutes"] = { 90, min = 15, max = 240, step = 15, note = "Minutes all break reminders stay quiet after that" },
   },
 }
 
@@ -111,9 +113,34 @@ function M.dismissEyeWash(instant)
   end
 end
 
+-- Cancelling breaks in a row means Matt is busy: everything goes quiet for busy.quietMinutes.
+-- Kept in hs.settings so a Hammerspoon reload doesn't end the quiet.
+local QUIET_KEY = "eye_breaks.quietUntil"
+local cancels = 0
+
+function M.isQuiet(now)
+  return (hs.settings.get(QUIET_KEY) or 0) > (now or M._clock())
+end
+
+-- Returns true when this cancel started the quiet spell.
+local function noteCancel()
+  cancels = cancels + 1
+  if cancels < T("busy.cancels") then return false end
+  cancels = 0
+  owed = nil
+  hs.settings.set(QUIET_KEY, M._clock() + T("busy.quietMinutes") * 60)
+  for _, k in ipairs({ "eyeDeferTimer", "eyeSnoozeTimer" }) do
+    if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
+  end
+  return true
+end
+M._noteCancel = noteCancel
+function M._resetCancels() cancels = 0; hs.settings.clear(QUIET_KEY) end
+
 -- Early dismiss = snooze: the break comes back after snooze.after with the rest still owed.
 local function snoozeEye(left)
   M.dismissEyeWash()
+  if noteCancel() then return end
   owed = left
   if activeWatchers.eyeSnoozeTimer then activeWatchers.eyeSnoozeTimer:stop() end
   activeWatchers.eyeSnoozeTimer = hs.timer.doAfter(T("snooze.after"), function()
@@ -140,7 +167,9 @@ function M.showEyeReminder(secs)
              textAlignment = "center", frame = { x = "10%", y = "40%", w = "80%", h = "10%" } }
     c[3] = { type = "text", text = tostring(secs) .. " s", textSize = T("eye.countdownTextSize"), textColor = hex(pal.text, 0.7),
              textAlignment = "center", frame = { x = "10%", y = "52%", w = "80%", h = "6%" } }
-    c[4] = { type = "text", text = string.format("Click or Escape = snooze %d s (the rest comes back)", T("snooze.after")), textSize = T("eye.skipHintTextSize"), textColor = hex(pal.text, 0.5),
+    c[4] = { type = "text", text = cancels + 1 >= T("busy.cancels")
+             and string.format("Click or Escape = no breaks for %d min", T("busy.quietMinutes"))
+             or string.format("Click or Escape = snooze %d s (cancel again = no breaks for %d min)", T("snooze.after"), T("busy.quietMinutes")), textSize = T("eye.skipHintTextSize"), textColor = hex(pal.text, 0.5),
              textAlignment = "center", frame = { x = "10%", y = "90%", w = "80%", h = "4%" } }
     c:mouseCallback(function() snoozeEye(activeWatchers.eyeWashLeft) end)
     c:canvasMouseEvents(true, false, false, false)
@@ -154,7 +183,7 @@ function M.showEyeReminder(secs)
   activeWatchers.eyeWashTimer = hs.timer.doEvery(1, function()
     left = left - 1
     activeWatchers.eyeWashLeft = left
-    if left <= 0 then M.dismissEyeWash(); return end
+    if left <= 0 then cancels = 0; M.dismissEyeWash(); return end
     for _, c in ipairs(canvases) do c[3].text = tostring(left) .. " s" end
   end)
 end
@@ -189,6 +218,11 @@ end
 local pendingSince = nil
 function M.requestEye(now)
   now = now or M._clock()
+  if M.isQuiet(now) then
+    if activeWatchers.eyeDeferTimer then activeWatchers.eyeDeferTimer:stop(); activeWatchers.eyeDeferTimer = nil end
+    pendingSince = nil
+    return "quiet"
+  end
   pendingSince = pendingSince or now
   if activeWatchers.eyeWashCanvases then pendingSince = nil; return "shown" end
   local busy = M.busyReason(now)
@@ -245,13 +279,13 @@ function M.showEscalation(activeSecs)
       textSize = T("hard.dismissTextSize"), textColor = { white = 1, alpha = T("overlay.hintAlpha") }, textAlignment = "center",
       frame = { x = "10%", y = "62%", w = "80%", h = "5%" }
     }
-    c:mouseCallback(function() M.dismissOverlay() end)
+    c:mouseCallback(function() noteCancel(); M.dismissOverlay() end)
     c:canvasMouseEvents(true, false, false, false)
     c:show(0.4)
     table.insert(overlays, c)
   end
   activeWatchers.eyeBreaksOverlays = overlays
-  activeWatchers.eyeBreaksEscKey = hs.hotkey.bind({}, "escape", function() M.dismissOverlay() end)
+  activeWatchers.eyeBreaksEscKey = hs.hotkey.bind({}, "escape", function() noteCancel(); M.dismissOverlay() end)
   hs.notify.new({ title = "Take a break now", informativeText = fmtDuration(activeSecs) .. " of continuous use.", withdrawAfter = 0 }):send()
 end
 
@@ -276,6 +310,12 @@ function M.tick(now, idle)
   if idle >= CFG.EYE_RESET_IDLE then
     state.lastEye = now
     return "idle"
+  end
+
+  -- Quiet spell: no breaks of any kind, and the next eye break gets a full interval after it.
+  if M.isQuiet(now) then
+    state.lastEye = now
+    return "quiet"
   end
 
   local active = now - state.sessionStart

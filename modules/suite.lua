@@ -26,11 +26,15 @@ local CONFIG_DIR = HOME .. "/.hammerspoon"
 -- Module paths safe to run on another Mac (no ai-os, no Matt-only paths).
 M.SHAREABLE = {
   "modules.click_lock",
+  "modules.side_buttons",
   "modules.clipboard",
   "modules.eye_breaks",
   "modules.fade_skip",
+  "modules.tv_brightness",
   "modules.wake_mute",
+  "modules.bt_mic_guard",
   "modules.selection_wrap",
+  "modules.logic_keys",
   "modules.keybindings",
   "modules.input_guard",
   "modules.clamshell_guard",
@@ -52,6 +56,18 @@ M.SHAREABLE = {
 -- init.lua loads must be in SHAREABLE or here (tests/suite_test.lua checks), so
 -- a new module can't slip into the public export, or out of it, by accident.
 M.MATT_ONLY = {
+  ["modules.question_keys"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.study_quiz"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.forced_checkin"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.piano_lock"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.enter_guard"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.ambient_listen"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.live_caption"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.field_pill"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.dictation_history"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.security_prompt_guard"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.thread_effort"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.readthrough_float"] = "new, not reviewed for sharing yet (2026-11-10)",
   ["modules.qwerty_midi"] = "needs ~/projects/qwerty-midi-hammerspoon",
   ["modules.gemini_thread_search"] = "searches Matt's thread archive",
   ["modules.lecture_mode"] = "Matt's study apps and school Chrome profile",
