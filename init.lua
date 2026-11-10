@@ -264,6 +264,7 @@ safeRegister("modules.thread_effort") -- Tweaks panel "Claude threads": the effo
 safeRegister("modules.claude_read_aloud") -- Coordinator reply → presses Claude's own Read aloud, then dictation
 safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies
 safeRegister("modules.readthrough_float") -- Readthrough floats beside Claude, per thread
+safeRegister("modules.claude_sidebar") -- ⌥T: your own Claude sidebar on the left of its window (2026-11-10)
 
 
 -- ── Startup confirmation ─────────────────────────────────────────────────────────

@@ -68,6 +68,7 @@ M.MATT_ONLY = {
   ["modules.security_prompt_guard"] = "new, not reviewed for sharing yet (2026-11-10)",
   ["modules.thread_effort"] = "new, not reviewed for sharing yet (2026-11-10)",
   ["modules.readthrough_float"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.claude_sidebar"] = "Matt's Claude threads + ai-os project_coordinator.py (2026-11-10)",
   ["modules.qwerty_midi"] = "needs ~/projects/qwerty-midi-hammerspoon",
   ["modules.gemini_thread_search"] = "searches Matt's thread archive",
   ["modules.lecture_mode"] = "Matt's study apps and school Chrome profile",
