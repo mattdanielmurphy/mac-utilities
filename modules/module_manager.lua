@@ -45,8 +45,8 @@ end
 
 local function isActive(o)
     for _, m in ipairs({ "isEnabled", "running", "isRunning", "isShowing", "isVisible" }) do
-        local f = o[m]
-        if type(f) == "function" then
+        local got, f = pcall(function() return o[m] end) -- a deleted object can't even be indexed
+        if got and type(f) == "function" then
             local ok, v = pcall(f, o)
             if ok and v then return true end
         end
@@ -74,12 +74,13 @@ local function sweep(id, entry)
                     _G.activeWatchers.mmPendingDelete = nil
                     local list = pendingDeletes
                     pendingDeletes = {}
-                    for _, v in ipairs(list) do pcall(v.delete, v) end
+                    for _, v in ipairs(list) do pcall(function() v:delete() end) end -- already deleted → indexing it throws
                 end)
             end
         else
             for _, m in ipairs({ "stop", "delete" }) do
-                if type(o[m]) == "function" then pcall(o[m], o) end
+                local got, f = pcall(function() return o[m] end)
+                if got and type(f) == "function" then pcall(f, o) end
             end
         end
     end
