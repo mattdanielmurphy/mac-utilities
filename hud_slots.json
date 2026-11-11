@@ -136,6 +136,15 @@
       "h": 96,
       "screen": "primary",
       "owner": "~/projects/music-connect (player strip, dragged off the menu bar)"
+    },
+    "slubcall_float": {
+      "corner": "topRight",
+      "dx": 412,
+      "dy": 368,
+      "w": 226,
+      "h": 150,
+      "screen": "primary",
+      "owner": "Mac App Shack (~/projects/mindful-browser AppShack/Mac): floating Slub Call window while App Shack is in the background during a call; draggable/resizable via hud-kit HUDWindow; w/h = biggest default size"
     }
   },
   "exempt": {
