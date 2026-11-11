@@ -18,8 +18,10 @@
 #           and put back after `done`, so always call done.
 #       --urgent jumps the line and preempts a normal holder: ONLY to stop a runaway.
 #       --thread cmsg_…: your project thread (project is read from the id; --project chan_… overrides),
-#       --link <url>: any other link (e.g. claude://code/session_…). Clicking the banner opens it,
-#           so Matt can see who's asking. Always pass one when you know it.
+#       --link <url>: any other link (e.g. claude://claude.ai/epitaxy/local_…). REQUIRED: one of the two.
+#           A plain click on the banner/pill opens it (never pauses), so Matt can see who's asking.
+#           A Claude Code desktop session gets its own link automatically ($CLAUDE_CODE_HOST_SESSION_ID);
+#           with no link at all a click only shows "No thread linked".
 #       While Matt has snoozed you (30s/1m/5m chips) the wrapper keeps waiting.
 #   claude-control lock "<name>" [--urgent]
 #       same queue, no banner: for deterministic automations (Keyboard Maestro, scripts).
@@ -63,6 +65,8 @@ case "$1" in
     done
     # Hammerspoon turns a thread id into the app link (modules/claude_links.lua).
     [[ -z $link && $thread == cmsg_* ]] && link="${thread//[^A-Za-z0-9_]/}" && [[ $project == chan_* ]] && link="${project//[^A-Za-z0-9_]/}:$link"
+    # No link given: a Claude Code desktop session links to itself.
+    [[ -z $link && $CLAUDE_CODE_HOST_SESSION_ID == local_* ]] && link="claude://claude.ai/epitaxy/${CLAUDE_CODE_HOST_SESSION_ID//[^A-Za-z0-9_-]/}"
     link=${link//\\/}; link=${link//\"/}; link=${link//$'\n'/}
     reason=${pos[1]:-"Running a quick test"}; secs=${pos[2]:-3}
     [[ $cmd == lock ]] && { quiet=true; light=false; secs=0; }

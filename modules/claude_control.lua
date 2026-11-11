@@ -38,8 +38,9 @@
 --                    window, play/pause, volume, restart audio) Matt can keep
 --                    typing through. Same queue, same hold-Esc / Stop.
 --                    Snooze chips (30s / 1m / 5m) put the ask aside (Matt, 2026-10-22).
--- link (--link / --thread): clicking the banner body opens the asking agent's
--- thread or session, so Matt can see who wants control and why.
+-- link (--link / --thread): a plain click on the banner or pill opens the asking
+-- agent's thread or session, so Matt can see who wants control and why. It never
+-- pauses (2026-11-11); with no link it only flashes "No thread linked".
 -- Every display (Matt, 2026-10-28): banner and pill show on each screen, not just the main one.
 -- Watching something (modules/playback_state: Now Playing or a video player's
 -- display-sleep assertion): the ask doesn't count down. A small top-right pill
@@ -63,6 +64,7 @@ local TWEAKS = {
   ["timing.playingMaxWait"] = { 600, min = 30, max = 3600, step = 30, note = "Seconds an ask waits while a show plays (for Allow or a pause) before giving up" },
   ["timing.fullscreenSettle"] = { 1.0, min = 0.3, max = 3, step = 0.1, note = "Seconds to let a fullscreen window finish exiting before Claude gets control" },
   ["look.bannerOpacity"] = { 0.95, min = 0.5, max = 1, step = 0.01, note = "Opacity of the full banner background" },
+  ["timing.noLinkHint"] = { 2.5, min = 0.5, max = 8, step = 0.5, note = "Seconds the \"No thread linked\" hint shows after clicking a banner whose agent passed no thread" },
 }
 local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Claude Take-Control Banner",
   file = require("modules.tweaks").dir .. "/claude_control.json", knobs = TWEAKS }
@@ -494,17 +496,23 @@ local function allCanvases()
   return list
 end
 
+local noLinkUntil = 0  -- a click on a banner with no thread flashes "No thread linked" until then
+local NO_LINK_FLASH = "No thread linked, so there's nothing to open"
+
 local function render()
   if not activeWatchers.claudeControlCanvas then return end
   local title, sub
+  local t = active and tickets[active]
+  local linked = t and t.link
+  local flash = not linked and hs.timer.secondsSinceEpoch() < noLinkUntil
   if waiting then
     title = "Claude wants to control your Mac for a second: " .. reasonText
-    sub = "Waits until you click Allow or pause the show"
+    sub = flash and NO_LINK_FLASH or "Waits until you click Allow or pause the show"
   elseif lightMode then
     title = state == "pending" and string.format("Claude, in %d: %s", remaining, reasonText)
       or ("Claude: " .. reasonText)
-    local t = active and tickets[active]
-    sub = (t and t.link) and "Click: open thread  ·  Hold Esc: pause" or "Hold Esc: pause  ·  keep holding: stop"
+    sub = flash and NO_LINK_FLASH or linked and "Click: open thread  ·  Hold Esc: pause"
+      or "No thread linked  ·  Hold Esc: pause"
   elseif state == "pending" then
     title = string.format("Claude wants to take control in %d…", remaining)
     sub = reasonText .. "  ·  Hands off the keyboard and mouse."
@@ -512,9 +520,12 @@ local function render()
     title = "Claude is controlling your Mac"
     sub = reasonText
   end
+  -- Full banner: a hint line under the buttons (element 8) says what a click does.
+  local hint = flash and NO_LINK_FLASH or linked and "Click anywhere to open its thread" or "No thread linked"
   for _, c in ipairs(allCanvases()) do
     c[2].text = title
     c[3].text = sub
+    if not lightMode and not waiting and #c >= 8 then c[8].text = hint end
     fitText(c)
   end
 end
@@ -596,7 +607,7 @@ end
 
 local function fullCanvas(scr)
   local screen = scr:frame()
-  local w, h = 560, 118
+  local w, h = 560, 134
   local frame = { x = screen.x + (screen.w - w) / 2, y = screen.y + (screen.h - h) / 2, w = w, h = h }
   local c = hs.canvas.new(frame)
   c:appendElements(
@@ -618,10 +629,36 @@ local function fullCanvas(scr)
       roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = { hex = "#FF7A1A" } },
     { type = "text", text = "Stop  ·  keep holding Esc", frame = { x = w / 2 + 10, y = 81, w = 160, h = 18 },
       textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
-      textAlignment = "center" }
+      textAlignment = "center" },
+    { type = "text", text = "", frame = { x = 20, y = 110, w = w - 40, h = 16 },
+      textSize = 11, textColor = { hex = "#6B5330" }, textAlignment = "center",
+      textLineBreak = "truncateTail" }
   )
   return c
 end
+
+-- A click on the banner or pill (Matt, 2026-11-11: "click them to open the thread
+-- that's doing it; and that should be the default action when I click, NOT pausing
+-- them"). A plain click anywhere but a button opens the asking agent's thread and
+-- changes nothing else. No thread → a short "No thread linked" hint, still harmless.
+-- Pausing lives on its own buttons: "Not now" (full banner, waiting pill), the
+-- Snooze chips (light pill), Stop, and the Esc hold.
+local function onClick(elementId)
+  local t = active and tickets[active]
+  local secs = tostring(elementId):match("^snooze(%d+)$")
+  if elementId == "allow" then M.allow()
+  elseif elementId == "stop" then stopTicket(active)
+  elseif elementId == "notnow" then cancel()
+  elseif secs then M.snooze(tonumber(secs))
+  elseif t and t.link then require("modules.claude_links").open(t.link)
+  else
+    local secsHint = T("timing.noLinkHint")
+    noLinkUntil = hs.timer.secondsSinceEpoch() + secsHint
+    render()
+    activeWatchers.claudeControlNoLink = hs.timer.doAfter(secsHint + 0.05, render)
+  end
+end
+M._click = onClick
 
 local function makeCanvas(scr)
   local c = (waiting and waitCanvas or lightMode and lightCanvas or fullCanvas)(scr)
@@ -629,15 +666,7 @@ local function makeCanvas(scr)
   c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
   c:mouseCallback(function(_, _, elementId)
     -- Defer: deleting the canvas inside its own callback is unsafe.
-    hs.timer.doAfter(0, function()
-      local t = active and tickets[active]
-      local secs = tostring(elementId):match("^snooze(%d+)$")
-      if elementId == "allow" then M.allow()
-      elseif elementId == "stop" then stopTicket(active)
-      elseif secs then M.snooze(tonumber(secs))
-      elseif elementId ~= "notnow" and t and t.link then require("modules.claude_links").open(t.link)
-      else cancel() end
-    end)
+    hs.timer.doAfter(0, function() onClick(elementId) end)
   end)
   c:canvasMouseEvents(true, false, false, false)
   -- Light: the title (reason) wraps. Full: title and reason both may wrap.
@@ -683,6 +712,7 @@ local function begin(reason, seconds, light, isWaiting)
   lightMode = light and true or false
   if activeWatchers.claudeControlEsc then activeWatchers.claudeControlEsc:stop() end
   reasonText = reason or "Running a quick test"
+  noLinkUntil = 0
   remaining = math.max(1, math.floor(tonumber(seconds) or 3))
   setState("pending")
   drawBanner()
