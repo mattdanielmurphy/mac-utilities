@@ -809,8 +809,27 @@ function M.otherPlayerTrack(cb)
   nextPlayer()
 end
 
+-- Starting a process blocks Hammerspoon until macOS has launched it. That is ~10 ms normally,
+-- but at load ~150 (2026-11-18, two builds and a simulator) one start took 5 s and froze the
+-- keyboard. When a start is slow, the next checks wait twice as long each time (up to a minute);
+-- one quick start goes back to every POLL seconds.
+local SLOW_SPAWN_MS, MAX_BACKOFF = 150, 60
+local pollBackoff, pollSkipUntil = nil, 0
+local function timedStart(task)
+  local t0 = hs.timer.secondsSinceEpoch()
+  task:start()
+  local now = hs.timer.secondsSinceEpoch()
+  if (now - t0) * 1000 > SLOW_SPAWN_MS then
+    pollBackoff = math.min(MAX_BACKOFF, (pollBackoff or CFG.POLL) * 2)
+    pollSkipUntil = now + pollBackoff
+  else
+    pollBackoff, pollSkipUntil = nil, 0
+  end
+end
+
 local function poll()
   if activeWatchers.songKeyPoll then return end    -- previous check still running
+  if hs.timer.secondsSinceEpoch() < pollSkipUntil then return end -- the Mac is slow to start processes
   activeWatchers.songKeyPoll = hs.task.new(CFG.NOWPLAYING, function(_, out)
     local lines = {}
     for line in ((out or "") .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
@@ -860,7 +879,7 @@ local function poll()
       end
     end)
   end, { "get", "title", "artist", "playbackRate", "clientBundleIdentifier" })
-  activeWatchers.songKeyPoll:start()
+  timedStart(activeWatchers.songKeyPoll)
 end
 
 function M.start()
