@@ -750,8 +750,24 @@ local function grant(id)
   local t = tickets[id]
   if not t or t.granting then return end
   t.granting = true
-  local win = not t.bg and hs.window.focusedWindow()
-  if win and win:isFullScreen() then
+  -- Only a full-screen front window needs work here. Asked with a 0.15 s accessibility timeout:
+  -- hs.window.focusedWindow() + isFullScreen() waited the full 0.5 s cap whenever the front app had
+  -- no answering window, freezing the keyboard on every grant (claude_control.lua:809, load
+  -- watchdog 2026-11-16..18, always ~515 ms).
+  local win
+  if not t.bg then
+    local app = hs.application.frontmostApplication()
+    local okE, appEl = pcall(hs.axuielement.applicationElement, app)
+    if okE and appEl then
+      pcall(appEl.setTimeout, appEl, 0.15)
+      local wEl = appEl:attributeValue("AXFocusedWindow")
+      if wEl then
+        pcall(wEl.setTimeout, wEl, 0.15)
+        if wEl:attributeValue("AXFullScreen") == true then win = wEl:asHSWindow() end
+      end
+    end
+  end
+  if win then
     t.restoreWin = win
     win:setFullScreen(false)
     activeWatchers.claudeControlSettle = hs.timer.doAfter(T("timing.fullscreenSettle"), function()
