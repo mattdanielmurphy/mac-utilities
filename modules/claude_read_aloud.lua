@@ -1,3 +1,6 @@
+-- ⚠️ SHELVED 2026-11-15. Do not revive without showing Matt this note first:
+-- Your note (2026-11-15): "causes extreme macos system lag which is extremely fucking annoying, doesn't work very well"
+-- Details and revive steps: ~/projects/ai-os/shelf/INDEX.md (Read aloud row).
 -- modules/claude_read_aloud.lua
 -- Presses Claude's own "Read aloud" button on each queued reply, oldest first, then starts
 -- Claude's own dictation (⌘D) when the queue is done, so Matt can answer by voice.
@@ -30,6 +33,9 @@ local T = tweaks.open{
     ["away.volume"] = { 0.4, min = 0, max = 1, step = 0.05, note = "Volume of that sound" },
     ["start.poll"] = { 0.15, min = 0.05, max = 1, step = 0.05, note = "Seconds between checks for the Read aloud button after a reply ends" },
     ["start.timeout"] = { 10, min = 3, max = 30, step = 1, note = "Seconds to wait for Claude's voice to start after a press before trying again" },
+    ["retry.first"] = { 1.5, min = 0.5, max = 10, step = 0.5, note = "Seconds before the first slow check for a waiting reply (each check scans Claude's whole window)" },
+    ["retry.max"] = { 20, min = 2, max = 120, step = 1, note = "Longest gap between those checks (the gap doubles each time)" },
+    ["retry.giveUp"] = { 120, min = 10, max = 900, step = 10, note = "Seconds of checking before giving up; switching back to Claude tries again" },
     ["start.window"] = { 4, min = 1, max = 15, step = 0.5, note = "Seconds of fast checking before slowing down" },
     ["return.delay"] = { 0.2, min = 0, max = 3, step = 0.1, note = "Seconds after switching back before reading starts" },
     ["dictate.after"] = { true, note = "Start dictation when reading ends" },
@@ -356,16 +362,30 @@ tryRead = function()
 end
 
 -- While replies wait and Claude is in front, keep checking (he may switch threads to one).
+-- Each check walks Claude's whole accessibility tree (2+ s on a long thread, and Hammerspoon
+-- holds every keystroke meanwhile), so checks back off and stop (2026-11-15: a reply whose
+-- button never appeared was re-scanned every 1.5 s for good and froze the keyboard ~80% of the
+-- time). Switching back to Claude still reads it (the app watcher calls tryRead).
 startRetry = function()
   stopRetry()
-  retry = hs.timer.doEvery(1.5, function()
-    if not pending then stopRetry(); return end
+  local gap, t0 = T("retry.first"), hs.timer.secondsSinceEpoch()
+  local function step()
+    retry = nil
+    if not pending then return end
+    if hs.timer.secondsSinceEpoch() - t0 > T("retry.giveUp") then
+      log("stopped checking for the Read aloud button (gave up); switching back to Claude retries")
+      return
+    end
     local ok, err = pcall(function()
       local app = claude()
       if app and app:isFrontmost() then tryRead() end
     end)
     if not ok then log("retry error (kept going): " .. tostring(err)) end
-  end)
+    if not pending or reading then return end
+    gap = math.min(gap * 2, T("retry.max"))
+    retry = hs.timer.doAfter(gap, step)
+  end
+  retry = hs.timer.doAfter(gap, step)
 end
 
 -- Morning check-in: pause whatever Claude is reading, read nothing new, and afterwards carry on
@@ -404,6 +424,7 @@ end
 function M.isHeld() return held end
 
 function M.replyDone()
+  if hs.settings.get("claude_read_aloud_off") then return "off" end
   pending = true
   if held then return "held" end
   log(string.format("turn ended: %d queued%s", #queue(), reading and " (behind the one playing)" or ""))
@@ -420,10 +441,13 @@ function M.replyDone()
   local t0 = hs.timer.secondsSinceEpoch()
   retry = hs.timer.doEvery(T("start.poll"), function()
     if not pending then stopRetry(); return end
+    local s0 = hs.timer.secondsSinceEpoch()
     local ok, read = pcall(tryRead)
     if not ok then log("poll error (kept going): " .. tostring(read)) end
     if ok and read then return end
-    if hs.timer.secondsSinceEpoch() - t0 > T("start.window") then startRetry() end
+    -- A slow scan (long thread) makes fast checking a keyboard freeze: go straight to the backoff.
+    local now_ = hs.timer.secondsSinceEpoch()
+    if now_ - t0 > T("start.window") or now_ - s0 > 0.3 then startRetry() end
   end)
   return "ok"
 end
@@ -545,6 +569,9 @@ function M.cancel(session)
 end
 
 function M.start()
+  -- Off since 2026-11-15: each scan of Claude's window blocks the keyboard ~2.4 s. Back on with
+  -- hs.settings.set("claude_read_aloud_off", nil) once the scan runs off the main thread.
+  if hs.settings.get("claude_read_aloud_off") then return end
   hs.fs.mkdir(os.getenv("HOME") .. "/.hammerspoon/tmp")
   hs.fs.mkdir(QDIR)
   pending = #queue() > 0

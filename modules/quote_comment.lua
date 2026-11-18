@@ -612,6 +612,8 @@ followBox = function()
 end
 
 updateBadge = function(hidden)
+  local kb = package.loaded["modules.keyd_bridge"]
+  if type(kb) == "table" then kb.sync() end -- queue changed: tell keyd now, not in up to 1 s
   local front = hs.application.frontmostApplication()
   local claudeFront = hidden or (front and front:bundleID() == CLAUDE_BUNDLE)
   if (#queue == 0 and not pending) or not claudeFront then
@@ -741,9 +743,19 @@ function M.start()
       pollUntil(function() return not modifiersHeld() end, 1500, function() flushQueue(false, r) end)
     end)
   end)
-  activeWatchers.quoteReturnTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, returnTap)
-  activeWatchers.quoteReturnTap:start()
+  local kb = require("modules.keyd_bridge")
+  if kb.running() then -- keyd holds Return in Claude only while a quote is queued (2026-11-14)
+    kb.interceptTap("quote_comment", { RETURN, PADENTER }, { CLAUDE_BUNDLE },
+      function() return #queue > 0 or pending ~= nil end, returnTap)
+  else
+    activeWatchers.quoteReturnTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, returnTap)
+    activeWatchers.quoteReturnTap:start()
+  end
   watchMic()
+  -- App switches and Claude's window moves only matter while a quote is queued or the badge is
+  -- up (2026-11-18): updateBadge on every switch (twice: deactivated + activated) cost up to
+  -- 0.9 s on a busy Mac (quote_comment.lua:766 in the load watchdog) with nothing to show.
+  local function badgeMatters() return #queue > 0 or pending ~= nil or activeWatchers.quoteBadge ~= nil end
   -- Keep the badge glued to Claude's window and hidden when Claude isn't in front.
   -- Claude's own windows only: an hs.window.filter (even for one app) makes
   -- Hammerspoon scan every running app on each reload, ~2 s with typing held up.
@@ -751,13 +763,13 @@ function M.start()
     if activeWatchers.quoteWinWatcher then activeWatchers.quoteWinWatcher:stop(); activeWatchers.quoteWinWatcher = nil end
     local app = claudeApp()
     if not app then return end
-    activeWatchers.quoteWinWatcher = app:newWatcher(function() updateBadge() end)
+    activeWatchers.quoteWinWatcher = app:newWatcher(function() if badgeMatters() then updateBadge() end end)
     activeWatchers.quoteWinWatcher:start({ hs.uielement.watcher.windowMoved, hs.uielement.watcher.windowResized,
       hs.uielement.watcher.focusedWindowChanged })
   end
   activeWatchers.quoteAppWatcher = hs.application.watcher.new(function(_, event, app)
     if event == hs.application.watcher.activated or event == hs.application.watcher.deactivated then
-      updateBadge()
+      if badgeMatters() then updateBadge() end
     elseif event == hs.application.watcher.launched and app and app:bundleID() == CLAUDE_BUNDLE then
       watchClaudeWindows()
     end
@@ -772,6 +784,8 @@ function M.stop()
     if activeWatchers[k] then activeWatchers[k]:delete(); activeWatchers[k] = nil end
   end
   if activeWatchers.quoteReturnTap then activeWatchers.quoteReturnTap:stop(); activeWatchers.quoteReturnTap = nil end
+  local kb = package.loaded["modules.keyd_bridge"]
+  if type(kb) == "table" then kb.uninterceptTap("quote_comment", { RETURN, PADENTER }) end
   if activeWatchers.quoteMicTask then activeWatchers.quoteMicTask:terminate(); activeWatchers.quoteMicTask = nil end
   if activeWatchers.quoteBadge then activeWatchers.quoteBadge:delete(); activeWatchers.quoteBadge = nil end
   if activeWatchers.quoteBadgeFollow then activeWatchers.quoteBadgeFollow:stop(); activeWatchers.quoteBadgeFollow = nil end

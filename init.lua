@@ -1,4 +1,5 @@
 -- ~/.hammerspoon/init.lua
+require("modules.swallow_log") -- temporary: names the tap eating number keys (2026-11-14)
 -- Entry point for the Hammerspoon configuration.
 -- Loads modular components and sets up automatic config reloading.
 --
@@ -61,6 +62,21 @@ end
 -- (a frozen Claude window) used to stop all typing for seconds.
 hs.axuielement.systemWideElement():setTimeout(0.5)
 
+-- Window filters must skip WebKit helper processes ("Palette Web Content", "Hammerspoon Web
+-- Content", …, 2026-11-15). They look like apps but never answer accessibility, so every
+-- window-filter start waited the full 0.5 s on each one: 3-4 s keyboard freezes per module reload.
+do
+  local wf = require("hs.window.filter")
+  local isGui = wf.isGuiApp
+  local HELPER = { " Web Content$", " Networking$", " Graphics and Media$", "%.WebContent$", "%.Networking$", "%.GPU$" }
+  wf.isGuiApp = function(appname)
+    if appname then
+      for _, pat in ipairs(HELPER) do if appname:find(pat) then return false end end
+    end
+    return isGui(appname)
+  end
+end
+
 -- Keyboard-freeze guard (2026-11-09): skips AX calls to an app that just answered
 -- slowly, and logs slow key handlers/timers to cache/main_thread.log. Must load
 -- before module_manager and every module (it wraps hs.eventtap.new / hs.timer).
@@ -117,15 +133,38 @@ local function _dependentsOf(lib, suite)
   return found, libs
 end
 
+-- A full reload restarts every module and freezes the keyboard 1-3 s (2026-11-15), so it never
+-- happens while you're typing: it waits until the Mac has been idle for 30 s (checked every
+-- 10 s, one timer however many saves pile up). Each one is logged with its reason.
+local _fullReloadReasons = {}
+local function _fullReload(reason)
+  _fullReloadReasons[#_fullReloadReasons + 1] = tostring(reason)
+  if activeWatchers.fullReloadWait then return end
+  local function try()
+    if hs.host.idleTime() < 30 then return false end
+    local mtg = package.loaded["modules.main_thread_guard"]
+    if mtg and mtg.log then mtg.log("full reload (idle): " .. table.concat(_fullReloadReasons, ", ")) end
+    hs.reload()
+    return true
+  end
+  if try() then return end
+  print("↻ full reload waiting until you're idle 30 s: " .. table.concat(_fullReloadReasons, ", "))
+  activeWatchers.fullReloadWait = hs.timer.doEvery(10, function()
+    if try() then activeWatchers.fullReloadWait:stop() end
+  end)
+end
+
+_G.fullReloadWhenIdle = _fullReload -- scripts/hs_reload.sh calls this
+
 local function _applyChanges()
   local files = pendingFiles
   pendingFiles = {}
   local manager, suite = package.loaded["modules.module_manager"], package.loaded["modules.suite"]
-  if not (manager and suite) then return hs.reload() end
+  if not (manager and suite) then return _fullReload("module manager not loaded") end
   local targets, dropLibs = {}, {}
   for file in pairs(files) do
     local name = file:match("/%.hammerspoon/modules/([%w_]+)%.lua$")
-    if not name then return hs.reload() end -- init.lua, rcmd.lua, vendor…
+    if not name then return _fullReload(file) end -- init.lua, rcmd.lua, vendor…
     local id
     for modId, path in pairs(suite.pathOf) do
       if path == "modules." .. name then id = modId end
@@ -137,7 +176,7 @@ local function _applyChanges()
     else
       -- A shared file: reload only the modules that use it, not all of Hammerspoon.
       local deps, libs = _dependentsOf(name, suite)
-      if not deps then return hs.reload() end
+      if not deps then return _fullReload("shared file " .. name) end
       for _, l in ipairs(libs) do dropLibs[#dropLibs + 1] = "modules." .. l end
       for depId, path in pairs(deps) do targets[depId] = path end
     end
@@ -145,7 +184,7 @@ local function _applyChanges()
   for _, lib in ipairs(dropLibs) do package.loaded[lib] = nil end
   local any = false
   for id, path in pairs(targets) do
-    if not manager.reload(id, path) then return hs.reload() end
+    if not manager.reload(id, path) then return _fullReload("hot swap failed: " .. path) end
     print("↻ hot-reloaded " .. id .. " (other modules untouched)")
     any = true
   end
@@ -155,7 +194,9 @@ end
 local function _reloadConfig(files)
   local relevant = false
   for _, file in ipairs(files) do
-    if file:sub(-4) == ".lua" and not file:find("/tests/", 1, true)
+    -- Hidden files are editors' temp saves (".!23605!bt_mic_guard.lua", 2026-11-15): they
+    -- forced full reloads. The real file's own change event does the hot swap.
+    if file:sub(-4) == ".lua" and not file:match("/%.[^/]*$") and not file:find("/tests/", 1, true) and not file:find("/.hammerspoon/cache/", 1, true)
       and not file:find("/.claude/", 1, true) and not file:find("/.agy-mcp/", 1, true) -- agent worktrees
       and not file:find("/tmp/", 1, true) and not file:find("/archive/", 1, true) then
       pendingFiles[file] = true
@@ -216,6 +257,7 @@ safeRegister("modules.input_guard") -- first: rate-limits scripted keystrokes
 -- shelved 2026-10-22 (Matt): modules.right_command_raycast
 -- shelved 2026-10-22 (Matt): modules.chrome_cmd_e
 safeRegister("modules.keybindings")
+safeRegister("modules.window_tiler") -- ⌥⌘Return maximize, ⌥⌘; left, ⌥⌘' right (replaces Rectangle, 2026-11-14)
 -- shelved 2026-10-22 (Matt): modules.antigravity_submit
 safeRegister("modules.clipboard")
 safeRegister("modules.qwerty_midi")
@@ -236,14 +278,18 @@ safeRegister("modules.ui_recorder")
 safeRegister("modules.ps5_dashboard")
 safeRegister("modules.eye_breaks")
 safeRegister("modules.claude_control")
+safeRegister("modules.matt_activity") -- notes Matt's real input while an agent holds a claude-control ticket
 safeRegister("modules.action_links") -- http://do.test/... links in chat run whitelisted actions
 safeRegister("modules.claude_notify")
 safeRegister("modules.claude_warm") -- toast before a waiting thread's cache goes cold
 safeRegister("modules.piano_hud")
-safeRegister("modules.piano_lock") -- Yamaha piano → Ableton (IAC ch 16), out-of-key notes dropped; weekly scale
+safeRegister("modules.piano_lock") -- scale-lock controller only: writes the filter for ~/projects/piano-thru (the daemon carries the piano MIDI, never HS)
 safeRegister("modules.song_key")
+safeRegister("modules.bottom_bar") -- global bottom bar: pinned items left, front app's items right
+safeRegister("modules.open_questions") -- ask-matt questions: bar item + bubble that pesters until answered
 safeRegister("modules.otp_copy") -- 2FA codes from Messages/Mail → clipboard (G- stripped)
 safeRegister("modules.fade_skip") -- media keys fade the song out before skipping
+safeRegister("modules.play_pause_muzak") -- play/pause key → Muzak (mc toggle), never Apple Music
 safeRegister("modules.tv_brightness") -- brightness keys move the TV as well as the laptop
 safeRegister("modules.claude_cmd_k")
 safeRegister("modules.hey_claude")
@@ -259,12 +305,18 @@ safeRegister("modules.dictation_history") -- ⌃⌥⌘D: everything you dictated
 safeRegister("modules.call_transcript") -- FaceTime call starts/ends → call-transcript start/stop
 safeRegister("modules.security_prompt_guard") -- security/permission prompt steals focus → Space/Return ignored ~1s
 safeRegister("modules.tv_resync") -- ⌃⌥R: TV stuck on "no signal" with the lid shut → re-sync it
+safeRegister("modules.tv_follow") -- TV on + Mac input when you come back or push the cursor to the TV; windows leave a TV on another input
 safeRegister("modules.tweaks_panel") -- ⌃⌥⌘T: sliders for every app's tweaks.json
-safeRegister("modules.thread_effort") -- Tweaks panel "Claude threads": the effort ceiling, written to Claude settings
-safeRegister("modules.claude_read_aloud") -- Coordinator reply → presses Claude's own Read aloud, then dictation
+safeRegister("modules.thread_effort") -- Tweaks panel "Claude threads": token thrift slider + coordinator/builder defaults (ai-os token_thrift.py)
+-- shelved 2026-11-15 (Matt: "causes extreme macos system lag… doesn't work very well"; see ai-os shelf/INDEX.md): modules.claude_read_aloud
+safeRegister("modules.state_files") -- live state as files (state/live/), so scripts never poll `hs`
 safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies
 safeRegister("modules.readthrough_float") -- Readthrough floats beside Claude, per thread
 safeRegister("modules.claude_sidebar") -- ⌥T: your own Claude sidebar on the left of its window (2026-11-10)
+safeRegister("modules.new_task") -- ⌥N anywhere: the New task sheet (claude-palette app/task, 2026-11-11)
+safeRegister("modules.music_links") -- Tim + Paul chat: music.mattmurphy.ca links, post only on your "post <n>" (2026-11-16)
+safeRegister("modules.coach") -- coach replies, bar Logic item + puzzle window, stand-up break (ai-os services/coach, 2026-11-17)
+safeRegister("modules.always_on") -- backup runner for ai-os always_on.py: kicks the watchdog loop if its heartbeat stops (2026-11-17)
 
 
 -- ── Startup confirmation ─────────────────────────────────────────────────────────

@@ -25,7 +25,12 @@
 #       While Matt has snoozed you (30s/1m/5m chips) the wrapper keeps waiting.
 #   claude-control lock "<name>" [--urgent]
 #       same queue, no banner: for deterministic automations (Keyboard Maestro, scripts).
-#   claude-control done [ticket]    release control (pass the ticket from ask/lock)
+#   claude-control done [ticket]    release control (pass the ticket from ask/lock). If Matt
+#       touched his Mac (real keys/clicks/media keys) during the ticket, a second line says what.
+#   claude-control matt-activity [--since <ticket|HH:MM[:SS]|10m|epoch>] [--status]
+#       Matt's own (hardware) input while agent tickets were held: "19:12:04 media key
+#       play/pause (Muzak frontmost)" lines, or "none". Default: last 10 min. Check this
+#       before calling unexpected behaviour during a test a bug.
 #   claude-control state [ticket]   queued:N | pending | granted | cancelled | stopped | preempted | idle
 #   claude-control held [agent]     does this session hold control? granted | pending | none
 #   claude-control blocked          list stopped agents still blocked
@@ -103,10 +108,26 @@ case "$1" in
     done
     hsc "return claudeControl.done(\"$id\")" >/dev/null
     echo timeout; exit 1 ;;
-  done)  [[ -n $2 ]] && hsc "return claudeControl.done(\"$2\")" || hsc 'return claudeControl.done()' ;;
+  done)
+    tk=${2//[^A-Za-z0-9_]/}
+    [[ -z $tk ]] && tk=$(hsc 'return claudeControl.activeId and claudeControl.activeId() or ""')
+    [[ -n $tk ]] && hsc "return claudeControl.done(\"$tk\")" || hsc 'return claudeControl.done()'
+    [[ -n $tk ]] && { s=$(hsc "return mattActivity and mattActivity.summary(\"$tk\") or ''"); [[ -n $s ]] && print -r -- "$s"; }
+    exit 0 ;;
+  matt-activity)
+    shift; since=""; st=false
+    while (( $# )); do
+      case $1 in --since) since=$2; shift ;; --status) st=true ;; *) since=$1 ;; esac
+      shift
+    done
+    since=${since//[^A-Za-z0-9_:.]/}
+    if $st; then out=$($HSX 'return mattActivity and mattActivity.status() or "matt_activity not loaded"' 2>/dev/null)
+    else out=$($HSX "return mattActivity and mattActivity.report(\"$since\") or 'matt_activity not loaded'" 2>/dev/null); fi
+    out=$(print -r -- "$out" | grep -v -E "recursing|Loading extension")
+    [[ -n $out ]] && print -r -- "$out" || { echo "unknown (Hammerspoon unreachable)"; exit 1; } ;;
   held)   hsc "return claudeControl.heldBy(\"${2:-$AGENT}\")" ;;   # granted | pending | none
   blocked) hsc 'return claudeControl.blocked()' ;;
   unblock) [[ -n $2 ]] && hsc "return claudeControl.unblock(\"${2//[^A-Za-z0-9_-]/}\")" || hsc 'return claudeControl.unblock()' ;;
   state) [[ -n $2 ]] && hsc "return claudeControl.state(\"$2\")" || hsc 'return claudeControl.state()' ;;
-  *) echo "usage: claude-control ask <reason> [secs] [--light] [--bg] [--urgent] [--thread cmsg_… | --link url] | lock <name> [--urgent] | done [ticket] | state [ticket] | blocked | unblock [agent]"; exit 2 ;;
+  *) echo "usage: claude-control ask <reason> [secs] [--light] [--bg] [--urgent] [--thread cmsg_… | --link url] | lock <name> [--urgent] | done [ticket] | matt-activity [--since t12|19:05|10m] [--status] | state [ticket] | blocked | unblock [agent]"; exit 2 ;;
 esac

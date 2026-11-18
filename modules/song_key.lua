@@ -67,7 +67,11 @@ local IGNORE = { ["com.anthropic.claudefordesktop"] = true }
 -- Music Connect (MusicKit) plays through Apple's XPC helper, so Now Playing names that helper. Its
 -- .xpc bundle resolves to an app path, so the ear already taps the helper's own process.
 local TRUSTED = { ["com.apple.Music"] = true, ["com.spotify.client"] = true,
-  ["com.apple.MediaPlayer.RemotePlayerService"] = true }
+  ["com.apple.MediaPlayer.RemotePlayerService"] = true, ["ca.mattmurphy.musicconnect.spike"] = true }
+-- Apps that name themselves in Now Playing but whose sound comes from another process. Muzak
+-- (2026-11-14) now publishes its own Now Playing, but MusicKit still plays through Apple's XPC
+-- helper, so the ear must tap the helper (tapping Muzak Player finds no audio: "can't capture").
+local PLAYS_THROUGH = { ["ca.mattmurphy.musicconnect.spike"] = "com.apple.MediaPlayer.RemotePlayerService" }
 
 -- Sources heard through an input device instead of a process tap. AirPlay Receiver
 -- plays inside Control Center, and Matt's Loopback device "Airplay Receiver" takes that
@@ -232,7 +236,8 @@ local function rect(mode)
   local saved = move.anchored(SPOT, w, h)
   if saved then return saved end
   local p = layout.rect(SPOT, CFG.PILL_W, CFG.PILL_H)
-  return hs.geometry.rect(p.x + p.w - w, p.y + p.h - h, w, h)
+  local lift = M.host and M.host.lift or 0 -- the bottom bar hosts the pill: the card opens above the bar
+  return hs.geometry.rect(p.x + p.w - w, p.y + p.h - h - lift, w, h)
 end
 
 local startListener, stopListener   -- defined with the listener below
@@ -369,7 +374,20 @@ local function switchTo(mode)
     redraw()
     if not move.dragging(SPOT) then wv:frame(rect()) end
   end
-  if not was then wv:show(CFG.FADE); watchMouse() end
+  -- While the bottom bar hosts the pill, this window only shows as the card.
+  if M.host and mode == "pill" then wv:hide(CFG.FADE)
+  elseif not wv:isVisible() then wv:show(CFG.FADE) end
+  if not was then watchMouse() end
+end
+
+-- The bottom bar (modules/bottom_bar.lua) shows the pill itself: setHost{ lift = barHeight }.
+-- setHost(nil) gives the pill window back. Applies at once.
+function M.setHost(host)
+  M.host = host
+  local wv = activeWatchers.songKeyView
+  if not (wv and state.mode) then return end
+  if not move.dragging(SPOT) then wv:frame(rect()) end
+  if host and state.mode == "pill" then wv:hide(CFG.FADE) elseif not wv:isVisible() then wv:show(CFG.FADE) end
 end
 
 function hide()
@@ -752,7 +770,27 @@ local PLAYERS = { { id = "com.apple.Music", name = "Music" }, { id = "com.spotif
 
 -- Async, off the main thread: cb(title, artist, bundleID) from the first running
 -- player that is playing, else cb(nil). A hung player only delays the next poll.
+-- Muzak first, from its own local API: macOS Now Playing often names another app (a paused
+-- Chrome tab) while Muzak plays, so it can't be trusted for Muzak.
+M.MUZAK_STATUS = "http://127.0.0.1:47821/status"
+local function muzakTrack(cb)
+  hs.http.asyncGet(M.MUZAK_STATUS, { ["X-MC-Client"] = "song-key" }, function(code, body)
+    local ok, j = pcall(hs.json.decode, body or "")
+    local song = ok and type(j) == "table" and j.playing == true and type(j.song) == "table" and j.song or nil
+    if code == 200 and song and song.title and song.title ~= "" then
+      cb(song.title, song.artist or "", "ca.mattmurphy.musicconnect.spike")
+    else cb(nil) end
+  end)
+end
+
 function M.playerTrack(cb)
+  muzakTrack(function(t, a, b)
+    if t then return cb(t, a, b) end
+    M.otherPlayerTrack(cb)
+  end)
+end
+
+function M.otherPlayerTrack(cb)
   local list = {}
   for _, p in ipairs(PLAYERS) do
     if hs.application.applicationsForBundleID(p.id)[1] then table.insert(list, p) end
@@ -797,10 +835,15 @@ local function poll()
           lookup(artist, title, song)
         end
         -- The ear listens only to the app playing the song; switch when that changes.
-        local app = bundle and bundle ~= "null" and hs.application.applicationsForBundleID(bundle)[1]
+        local soundBundle = bundle and PLAYS_THROUGH[bundle] or bundle
+        local app = soundBundle and soundBundle ~= "null" and hs.application.applicationsForBundleID(soundBundle)[1]
         local source = app and app:path() or nil
         local device = bundle and DEVICE_FOR[bundle]
-        if device and hs.audiodevice.findInputByName(device) then source = "device:" .. device end
+        -- Device list from the bin/audio-devices helper's last report, never hs.audiodevice (2026-11-15).
+        local audio = require("modules.audio_events")
+        audio.keepAlive("song_key")
+        local st = audio.state()
+        if device and st and st.inputs[device] then source = "device:" .. device end
         if source ~= state.source then
           state.source = source
           stopListener()

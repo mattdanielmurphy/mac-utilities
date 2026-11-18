@@ -8,7 +8,7 @@
 
 local TWEAKS = {
   ["guard.enabled"] = { 1, min = 0, max = 1, step = 1, note = "1 keeps the default mic off Bluetooth headphones; 0 leaves it alone" },
-  ["guard.every"] = { 2, min = 1, max = 30, step = 1, note = "Seconds between checks (read when the module starts)" },
+  ["guard.safetyEvery"] = { 300, min = 60, max = 3600, step = 60, note = "Seconds between safety checks; device changes are caught at once by the audio watcher" },
 }
 local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Bluetooth Mic Guard",
   file = require("modules.tweaks").dir .. "/bt_mic_guard.json", knobs = TWEAKS }
@@ -22,31 +22,44 @@ local M = {
 _G.activeWatchers = _G.activeWatchers or {}
 local activeWatchers = _G.activeWatchers
 
--- The Mac's own mic, or nil when there isn't one.
-local function builtInMic()
-  for _, dev in ipairs(hs.audiodevice.allInputDevices()) do
-    if dev:transportType() == "Built-in" then return dev end
-  end
+-- All Core Audio work runs in bin/audio-devices, a separate process (2026-11-15: a Core Audio call
+-- here froze the keyboard for 60 s while coreaudiod was busy). Checks run when the default mic or
+-- the device list changes, plus a slow safety check.
+local audio = require("modules.audio_events")
+local busy = false
+
+-- Bluetooth default mic → built-in mic. Uses the helper's last report; never blocks.
+function M.check()
+  if T("guard.enabled") == 0 or busy then return false end
+  local s = audio.state()
+  if s and s.inTransport ~= "bluetooth" then return false end
+  busy = true
+  audio.run({ "--unbluetooth-input" }, function(out)
+    busy = false
+    local from, to = tostring(out or ""):match("^moved\t([^\t]*)\t([^\n]*)")
+    if from then print("bt_mic_guard: default mic moved from " .. from .. " to " .. to)
+    elseif out == nil then print("bt_mic_guard: Core Audio didn't answer in 10 s; will retry on the next change") end
+  end, 10)
+  return true
 end
 
-function M.check()
-  if T("guard.enabled") == 0 then return false end
-  local current = hs.audiodevice.defaultInputDevice()
-  if not current or current:transportType() ~= "Bluetooth" then return false end
-  local mic = builtInMic()
-  if not mic or not mic:setDefaultInputDevice() then return false end
-  print("bt_mic_guard: default mic moved from " .. tostring(current:name()) .. " to " .. tostring(mic:name()))
-  return true
+local function soon()
+  if activeWatchers.btMicGuardSoon then activeWatchers.btMicGuardSoon:stop() end
+  activeWatchers.btMicGuardSoon = hs.timer.doAfter(0.5, function() activeWatchers.btMicGuardSoon = nil; M.check() end)
 end
 
 function M.start()
   M.stop()
-  activeWatchers.btMicGuard = hs.timer.doEvery(T("guard.every"), M.check)
+  M.sub = audio.on(function(event) if event == "dIn " or event == "dev#" then soon() end end)
+  activeWatchers.btMicGuard = hs.timer.doEvery(T("guard.safetyEvery"), M.check)
   M.check()
 end
 
 function M.stop()
-  if activeWatchers.btMicGuard then activeWatchers.btMicGuard:stop(); activeWatchers.btMicGuard = nil end
+  audio.off(M.sub); M.sub = nil
+  for _, k in ipairs({ "btMicGuard", "btMicGuardSoon" }) do
+    if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
+  end
 end
 
 function M.status()

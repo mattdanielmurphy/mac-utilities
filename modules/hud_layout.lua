@@ -34,12 +34,29 @@ M.SCENARIOS = {
 -- ── Pure functions (no hs.*), tested by tests/hud_layout_test.lua ─────────────
 
 -- Rect of size w×h anchored at the slot's corner inside screen frame f {x,y,w,h}.
+-- fullWidth slots (the bottom bar) span the whole screen, whatever w says; centerX slots sit mid-screen.
 function M.place(f, slot, w, h)
   w, h = w or slot.w, h or slot.h
+  if slot.fullWidth then w = f.w - 2 * (slot.dx or 0) end
   local corner = slot.corner or "bottomRight"
   local x = corner:find("Right") and (f.x + f.w - slot.dx - w) or (f.x + slot.dx)
+  if corner:find("Center$") then x = f.x + f.w / 2 - w / 2 + (slot.dx or 0) end  -- bottomCenter / topCenter
+  if slot.centerX then x = f.x + (f.w - w) / 2 end
   local y = corner:find("^bottom") and (f.y + f.h - slot.dy - h) or (f.y + slot.dy)
   return { x = x, y = y, w = w, h = h }
+end
+
+-- Usable area (rule "Slub utilities respect each other", 2026-11-14): screen frame f minus the
+-- bands other utilities hold along its bottom edge (rects {x,y,w,h}, e.g. the bottom bar).
+-- A band counts when it touches f's bottom edge and overlaps it sideways.
+function M.trimBottom(f, bands)
+  local bottom = f.y + f.h
+  for _, r in ipairs(bands or {}) do
+    if r and r.y + r.h >= bottom - 1 and r.y < bottom and r.x < f.x + f.w and r.x + r.w > f.x then
+      bottom = math.max(f.y, math.min(bottom, r.y))
+    end
+  end
+  return { x = f.x, y = f.y, w = f.w, h = bottom - f.y }
 end
 
 local function intersects(a, b)
@@ -66,7 +83,16 @@ function M.check(slots, scenarios)
       end
       for i = 1, #here do
         for j = i + 1, #here do
-          if intersects(here[i].r, here[j].r) then
+          -- yieldsTo: a HUD that never shows while that one is up (the Song Key pill moves into the bar)
+          local a, b = slots[here[i].id], slots[here[j].id]
+          -- inside: a HUD drawn inside its host on purpose (the eye break strip in the bottom bar)
+          local yields = a.yieldsTo == here[j].id or b.yieldsTo == here[i].id
+            or a.inside == here[j].id or b.inside == here[i].id
+          -- over: a HUD that may cover these on purpose while it is up (the open-question bubble over
+          -- short-lived toasts; the summoned Trackpad Mixer over the bottom bar)
+          local function lists(t, id) for _, v in ipairs(t or {}) do if v == id then return true end end return false end
+          yields = yields or lists(a.over, here[j].id) or lists(b.over, here[i].id)
+          if not yields and intersects(here[i].r, here[j].r) then
             problems[#problems + 1] = string.format("%s overlaps %s on %s (%s)",
               here[i].id, here[j].id, scr.name, sc.name)
           end
@@ -113,6 +139,24 @@ function M.screen(id)
   if role == "primary" then return hs.screen.primaryScreen() end
   if role == "cursor" then return hs.mouse.getCurrentScreen() or hs.screen.mainScreen() end
   return builtinScreen()
+end
+
+-- Reserved areas: a utility that holds screen space registers fn(screen) → rect or nil (nil
+-- while it isn't holding any), and every panel/window placer asks M.usableFrame(screen)
+-- instead of screen:frame(). Register in start(), M.reserve(id, nil) in stop().
+local reserved = {}
+function M.reserve(id, fn) reserved[id] = fn end
+
+function M.usableFrame(scr)
+  scr = scr or hs.screen.mainScreen()
+  local bands = {}
+  for id, fn in pairs(reserved) do
+    local ok, r = pcall(fn, scr)
+    if ok and r then bands[#bands + 1] = r
+    elseif not ok then print("⚠️ hud_layout: reserve " .. id .. ": " .. tostring(r)) end
+  end
+  local r = M.trimBottom(scr:frame(), bands)
+  return hs.geometry.rect(r.x, r.y, r.w, r.h)
 end
 
 -- hs.geometry rect for the HUD `id`, sized w×h (default: the whole slot).

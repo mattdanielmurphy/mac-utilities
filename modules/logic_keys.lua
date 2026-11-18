@@ -145,6 +145,11 @@ local function closePicker()
   if mouseTap then mouseTap:stop(); mouseTap = nil end
   if canvas then canvas:delete(); canvas = nil end
   state.open = false
+  if state.keydToken then -- keyd runs the keys: tell it the picker is gone
+    local kb = package.loaded["modules.keyd_bridge"]
+    if type(kb) == "table" then kb.send({ logicClosed = state.keydToken }) end
+    state.keydToken = nil
+  end
 end
 
 local function insert(symbol)
@@ -318,6 +323,38 @@ end
 
 function M.start()
   M.stop()
+  local kb = require("modules.keyd_bridge")
+  if kb.running() then
+    -- keyd runs the hold/repeat/digit handling on its own thread (2026-11-14); we only answer
+    -- "text input here?" and draw the picker. Nothing of ours sits in the key path.
+    local codes, counts = {}, {}
+    for name, list in pairs(M.KEYS) do
+      local code = hs.keycodes.map[name]
+      if code then codes[tostring(code)] = name end
+      counts[name] = #list
+    end
+    kb.setLogic(function()
+      return { keys = codes, counts = counts, holdDelay = T("hold.delay"), repeatAfter = T("repeat.after") }
+    end, function(what, token, a, b)
+      if what == "ask" then
+        local ok, skip = pcall(appIsSkipped)
+        kb.send({ logicAnswer = { token = token, skip = (not ok) or skip == true } })
+      elseif what == "open" then
+        showPicker(a)
+        state.keydToken = token
+      elseif what == "close" then
+        state.keydToken = nil
+        closePicker()
+      elseif what == "choose" then
+        state.keydToken = nil
+        local symbol = M.KEYS[a] and M.KEYS[a][tonumber(b)]
+        closePicker()
+        if symbol then insert(symbol) end
+      end
+    end)
+    activeWatchers.logicKeysTap = { stop = function() kb.setLogic(nil, nil) end }
+    return
+  end
   activeWatchers.logicKeysTap = hs.eventtap.new({ types.keyDown, types.keyUp }, onEvent):start()
 end
 

@@ -380,14 +380,21 @@ local function showPill(code, source)
   -- focused field's text now contains it (menu Paste, autofill, typed by hand).
   local function hideThis() if pill == c then hidePill() end end
   local V = hs.keycodes.map.v
-  pasteTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
-    local f = e:getFlags()
-    if e:getKeyCode() == V and f.cmd and not (f.alt or f.ctrl or f.shift)
+  local function onKey(code, f)
+    if code == V and f.cmd and not (f.alt or f.ctrl or f.shift)
         and hs.pasteboard.changeCount() == copiedStamp then
       hs.timer.doAfter(T("paste.delay"), hideThis)
     end
-    return false
-  end):start()
+  end
+  local kb = require("modules.keyd_bridge")
+  if kb.running() then -- watch via keyd: never in the key path (2026-11-14)
+    kb.onKey("otp_copy", onKey)
+    pasteTap = { stop = function() kb.offKey("otp_copy") end, isEnabled = function() return true end }
+  else
+    pasteTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
+      onKey(e:getKeyCode(), e:getFlags()); return false
+    end):start()
+  end
   pastePoll = hs.timer.doEvery(0.5, function()
     local el = focusedElement()
     local ok, value = pcall(function() return el and el:attributeValue("AXValue") end)

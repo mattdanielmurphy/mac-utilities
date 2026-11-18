@@ -71,28 +71,32 @@ local function musicNow(dir, vol)
   run(OSASCRIPT, { "-e", 'tell application "Music"\n' .. cmd .. restore .. "\nend tell" })
 end
 
+-- System volume goes through the bin/audio-devices helper, never hs.audiodevice: a stuck
+-- coreaudiod would freeze Hammerspoon (and the keyboard) for 60 s (2026-11-15).
+local audio = require("modules.audio_events")
+
 local function systemFade(dir)
-  local dev = hs.audiodevice.defaultOutputDevice()
-  local vol = dev and dev:outputVolume()
-  if not vol or vol <= 0 or dev:outputMuted() then
-    mediaRemote(dir)
-    return
-  end
-  local job = { kind = "system", dev = dev, vol = vol, step = 0 }
+  local job = { kind = "system" }
   cur = job
-  job.timer = hs.timer.doEvery(CFG.fadeSecs / CFG.sysSteps, function()
-    job.step = job.step + 1
-    local k = 1 - job.step / CFG.sysSteps
-    dev:setOutputVolume(vol * k * k)
-    if job.step >= CFG.sysSteps then
-      job.timer:stop()
+  audio.run({ "--get-volume" }, function(out)
+    if job.cancelled then return end
+    local vol, muted = (out or ""):match("^(%d+)\t(%d)")
+    vol = tonumber(vol)
+    if not vol or vol <= 0 or muted == "1" then
+      if cur == job then cur = nil end
+      mediaRemote(dir)
+      return
+    end
+    job.vol = vol
+    job.task = audio.run({ "--fade", tostring(vol), "0", tostring(CFG.fadeSecs), tostring(CFG.sysSteps) }, function()
+      if job.cancelled then return end
       mediaRemote(dir)
       job.restore = hs.timer.doAfter(CFG.sysRestoreDelay, function()
-        dev:setOutputVolume(vol)
+        audio.run({ "--set-volume", tostring(vol) })
         if cur == job then cur = nil end
       end)
-    end
-  end)
+    end, CFG.fadeSecs + 5)
+  end, 3)
 end
 
 -- Cut a running fade short: skip now and put the volume back.
@@ -103,10 +107,11 @@ local function finishNow(job, dir)
     if job.task:isRunning() then job.task:terminate() end
     musicNow(dir, job.vol)
   else
-    if job.timer then job.timer:stop() end
+    job.cancelled = true
     if job.restore then job.restore:stop() end
+    if job.task and job.task:isRunning() then job.task:terminate() end
     mediaRemote(dir)
-    job.dev:setOutputVolume(job.vol)
+    if job.vol then audio.run({ "--set-volume", tostring(job.vol) }) end
   end
 end
 

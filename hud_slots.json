@@ -5,7 +5,7 @@
     "piano_hud": {
       "corner": "bottomRight",
       "dx": 24,
-      "dy": 24,
+      "dy": 80,
       "w": 300,
       "h": 150,
       "screen": "builtin",
@@ -14,7 +14,7 @@
     "piano_card": {
       "corner": "bottomRight",
       "dx": 24,
-      "dy": 182,
+      "dy": 238,
       "w": 380,
       "h": 340,
       "screen": "builtin",
@@ -23,7 +23,7 @@
     "song_key": {
       "corner": "bottomRight",
       "dx": 332,
-      "dy": 24,
+      "dy": 80,
       "w": 240,
       "h": 148,
       "screen": "builtin",
@@ -36,7 +36,8 @@
       "w": 104,
       "h": 22,
       "screen": "builtin",
-      "owner": "modules/song_key.lua (the card shrinks to this pill, just under the card's spot at the bottom edge; moves into the planned bottom bar later)"
+      "owner": "modules/song_key.lua (the card shrinks to this pill, just under the card's spot at the bottom edge; moves into the planned bottom bar later)",
+      "yieldsTo": "bottom_bar"
     },
     "trackpad_mixer": {
       "corner": "bottomRight",
@@ -45,7 +46,10 @@
       "w": 460,
       "h": 380,
       "screen": "cursor",
-      "owner": "~/projects/trackpad-mixer"
+      "owner": "~/projects/trackpad-mixer (over: summoned on demand, it may cover the 72 px bottom bar while up; raising it would hit ambient_hud on the laptop)",
+      "over": [
+        "bottom_bar"
+      ]
     },
     "claude_control_light": {
       "corner": "topRight",
@@ -68,7 +72,7 @@
     "otp_code": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 50,
+      "dy": 114,
       "w": 240,
       "h": 56,
       "screen": "primary",
@@ -77,16 +81,16 @@
     "wifi_home": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 114,
+      "dy": 178,
       "w": 240,
       "h": 26,
       "screen": "primary",
-      "owner": "modules/wifi_home.lua (Wi-Fi → home note after rejoining home, fades)"
+      "owner": "modules/wifi_home.lua (Wi-Fi \u2192 home note after rejoining home, fades)"
     },
     "tv_brightness": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 148,
+      "dy": 212,
       "w": 240,
       "h": 26,
       "screen": "primary",
@@ -95,7 +99,7 @@
     "question_keys": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 182,
+      "dy": 246,
       "w": 330,
       "h": 26,
       "screen": "primary",
@@ -122,7 +126,7 @@
     "reload": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 14,
+      "dy": 78,
       "w": 28,
       "h": 28,
       "screen": "primary",
@@ -131,7 +135,7 @@
     "music_connect_strip": {
       "corner": "bottomLeft",
       "dx": 14,
-      "dy": 216,
+      "dy": 280,
       "w": 400,
       "h": 96,
       "screen": "primary",
@@ -144,7 +148,70 @@
       "w": 226,
       "h": 150,
       "screen": "primary",
-      "owner": "Mac App Shack (~/projects/mindful-browser AppShack/Mac): floating Slub Call window while App Shack is in the background during a call; draggable/resizable via hud-kit HUDWindow; w/h = biggest default size"
+      "owner": "Mac App Shack (~/projects/spacetime AppShack/Mac): floating SpaceTime call window while App Shack is in the background during a call; draggable/resizable via hud-kit HUDWindow; w/h = biggest default size; also the incoming-call ring panel (same spot, never both at once)"
+    },
+    "bottom_bar": {
+      "corner": "bottomLeft",
+      "dx": 0,
+      "dy": 0,
+      "w": 0,
+      "h": 72,
+      "fullWidth": true,
+      "screen": "primary",
+      "owner": "modules/bottom_bar.lua: the global bottom bar, full width along the bottom of the primary screen (pushes windows up). 72 px tall since 2026-11-14 (open questions live in it; was 24). Questions item first, then pinned items left, the front app's items right."
+    },
+    "open_questions": {
+      "corner": "bottomLeft",
+      "dx": 8,
+      "dy": 80,
+      "w": 640,
+      "h": 300,
+      "screen": "primary",
+      "over": [
+        "reload",
+        "otp_code",
+        "wifi_home",
+        "tv_brightness",
+        "question_keys",
+        "music_connect_strip",
+        "trackpad_mixer"
+      ],
+      "owner": "modules/open_questions.lua: the open-question bubble, rising from the bar's questions item (tail points at it). Normal max 640x300; More context grows it upward past this slot while Matt reads it (his click, temporary). over: it may cover these short-lived toasts while it is open; they keep their own spots."
+    },
+    "eye_strip": {
+      "corner": "bottomLeft",
+      "dx": 0,
+      "dy": 2,
+      "w": 380,
+      "h": 20,
+      "centerX": true,
+      "inside": "bottom_bar",
+      "screen": "primary",
+      "owner": "modules/eye_strip.lua: the eye break prompt, centred inside the bottom bar (its height follows the bar's; width is the strip.width knob)"
+    },
+    "volume_play": {
+      "corner": "bottomCenter",
+      "dx": 0,
+      "dy": 96,
+      "w": 340,
+      "h": 330,
+      "screen": "cursor",
+      "owner": "~/projects/trackpad-mixer KnobHUD: the volume-knob mixer (volume keys) and the play/pause chooser, both bottom centre where the macOS volume HUD sits, clear of the 72 px bottom bar (over: it pops up for under 2 s on a key press, like the macOS volume HUD, so it may briefly cover these; they keep their own spots)",
+      "over": [
+        "ambient_hud",
+        "open_questions",
+        "slubcall_float",
+        "trackpad_mixer"
+      ]
+    },
+    "always_on": {
+      "corner": "bottomLeft",
+      "dx": 14,
+      "dy": 384,
+      "w": 300,
+      "h": 26,
+      "screen": "primary",
+      "owner": "modules/corner_note.lua for ai-os scripts/always_on.py (always-on service notes like: Karabiner console server restarted; fade out)"
     }
   },
   "exempt": {
@@ -159,14 +226,25 @@
     "lecture_mode": "exit button while lecture mode is on: modal",
     "logic_keys": "hold-a-letter picker: centred on screen, closes on its own",
     "logic_editor": "on-demand editor window, user-placed",
-    "tweaks_panel": "⌃⌥⌘T Tweaks panel: a standard titled window, user-placed, frame remembered",
-    "palette": "⌥Space search palette (~/projects/claude-palette): on-demand, centred upper third, user-placed via hud-kit HUDWindow, frame remembered",
-    "gif_picker": "⌃⌥⌘G GIF picker: a standard titled window, user-placed, frame remembered",
+    "tweaks_panel": "\u2303\u2325\u2318T Tweaks panel: a standard titled window, user-placed, frame remembered",
+    "palette": "\u2325Space search palette (~/projects/claude-palette): on-demand, centred upper third, user-placed via hud-kit HUDWindow, frame remembered",
+    "gif_picker": "\u2303\u2325\u2318G GIF picker: a standard titled window, user-placed, frame remembered",
     "ps5_dashboard": "follows the controller cursor",
     "claude_sidebar": "Claude sidebar (modules/claude_sidebar.lua): anchored flush to the left edge of Claude's window, follows it; not a free-floating HUD",
     "readthrough_float": "Readthrough float (modules/readthrough_float.lua): anchored to Claude's window (right side, below its header), a standard utility window, user-placed, frame remembered",
     "study_quiz": "hourly Logic quiz takeover (modules/study_quiz.lua): full-screen, modal, a few questions then gone",
     "quote_comment": "queued-count pill anchored to Claude's window above its message box, not a screen corner",
-    "bottom_strip": "shared full-width bottom strip (modules/bottom_strip.lua): spans the whole bottom edge and pushes app windows up out of its way instead of sharing a corner; one shows at a time; floats over full-screen video when shown there"
+    "bottom_strip": "shared full-width bottom strip (modules/bottom_strip.lua): spans the whole bottom edge and pushes app windows up out of its way instead of sharing a corner; one shows at a time; floats over full-screen video when shown there",
+    "open_questions_emergency": "emergency question (modules/open_questions.lua): centred card plus a click-through dim scrim over the whole screen; modal-like, shows alone",
+    "tv_follow_portal": "TV portal glow: fills the laptop's menu-bar band, behind the menu bar, only while you push the cursor up toward a TV not showing the Mac",
+    "coach_puzzle": "Logic Party window from the coach (modules/coach.lua): a standard titled window, on demand or at the coach's pop-up times, centred the first time, user-placed, frame remembered",
+    "admin_alert": "modules/admin_alert.lua: near-top-priority centered alert with an admin-restart button (root service down, e.g. Karabiner core); modal, closes when the service is back",
+    "coach": "Logic Party puzzle window (modules/coach.lua): a standard titled window, centred on first open, user-placed via hud_move, frame remembered",
+    "dictation_history": "\u2303\u2325\u2318D dictation history: on-demand window, centred top, closes on its own",
+    "enter_guard": "held-Return pill anchored just above Claude's message box, follows Claude's window; not a screen corner",
+    "feedback": "feedback box anchored above its own item at the bottom bar's right end (reads bottom_bar.frame())",
+    "field_pill": "dictation pill sits at the caret of the focused text field",
+    "snooze_sheet": "snooze sheet centred over Claude's window with a dim backdrop: modal, closes on Enter/Esc",
+    "tv_follow": "edge glow along the menu-bar strip where the cursor crosses to the TV: anchored to that screen edge, transient"
   }
 }

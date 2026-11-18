@@ -10,6 +10,12 @@
 --
 -- "Continuous use" resets when the keyboard/mouse is idle for BREAK_RESET
 -- seconds, or when the Mac sleeps that long. Toggle it from the ⚙︎ menu.
+--
+-- Never interrupts (2026-11-14): no break of any kind during a call (a call app on the
+-- mic, or any camera in use), while an agent holds claude-control, in lecture mode,
+-- while screen recording, with a Focus on, or while a video plays; then a grace of
+-- defer.afterHold seconds. Typing, mouse use and read-aloud hold the eye break up to
+-- defer.max; dictation holds it with no cap. A hold that starts mid-break clears it.
 
 local M = {
   id = "eye_breaks",
@@ -35,9 +41,15 @@ M.config = CFG
 
 -- ── State ──────────────────────────────────────────────────────────────────────
 local state = {}
+local lastRest -- set below (see "Last real rest")
+
+-- The 20-minute eye interval restarts from here: when a break appears, ends, or you rest.
+function M._markEye(t) state.lastEye = math.max(state.lastEye or 0, t) end
+function M._lastEye() return state.lastEye end
 
 local function resetSession(now)
   state.sessionStart = now
+  lastRest = now
   state.lastEye = now
   state.lastHard = nil
   state.lastEscalate = nil
@@ -82,9 +94,15 @@ local T = require("modules.tweaks").open{
     ["text.size"]      = { 40, min = 18, max = 80, step = 1, note = "Prompt size (pt)" },
     ["defer.typingQuiet"] = { 4, min = 1, max = 30, step = 1, note = "Hold the eye break until no key pressed for this many seconds" },
     ["defer.dictateQuiet"] = { 6, min = 1, max = 30, step = 1, note = "Hold the eye break until Claude dictation has been off this many seconds (no cap)" },
-    ["defer.max"]      = { 120, min = 10, max = 600, step = 10, note = "Longest the eye break waits for typing / read-aloud before showing anyway" },
+    ["defer.max"]      = { 120, min = 10, max = 600, step = 10, note = "Longest the eye break waits for typing / mouse / read-aloud before showing anyway" },
+    ["defer.mouseQuiet"] = { 3, min = 0, max = 30, step = 1, note = "Hold the eye break until the mouse/trackpad has been still this many seconds (0 = off)" },
+    ["defer.afterHold"] = { 45, min = 0, max = 600, step = 5, note = "Seconds of grace after a call, video, agent test, lecture or Focus ends before a break can show" },
+    ["defer.callApps"] = { "FaceTime,zoom.us,Teams,Discord,Slack,Webex,Skype,WhatsApp,Signal,Telegram,Google Chrome,Safari,Arc,Firefox,Brave", note = "Apps that count as a call when they use the mic (comma list, matched in the process path)" },
+    ["defer.onFocus"]  = { true, note = "Hold all breaks while a Focus / Do Not Disturb is on" },
+    ["defer.onVideo"]  = { true, note = "Hold all breaks while a video plays (an app holds the display awake)" },
     ["snooze.after"]   = { 60, min = 10, max = 600, step = 5, note = "Seconds before an early-dismissed eye break comes back" },
     ["busy.cancels"]   = { 2, min = 1, max = 6, step = 1, note = "Cancels in a row that mean you're busy and all breaks go quiet" },
+    ["style"] = { "strip", choices = { "strip", "wash" }, note = "strip = the eye in the bottom bar, hold Return for 3 breaths (2026-11-14); wash = the old full-screen countdown" },
     ["busy.quietMinutes"] = { 90, min = 15, max = 240, step = 15, note = "Minutes all break reminders stay quiet after that" },
   },
 }
@@ -102,7 +120,14 @@ end
 -- Rest still owed from an early-dismissed eye break (nil = none).
 local owed = nil
 
+-- Last real rest: a finished breath break, or idle long enough to have looked away. Drives how
+-- tired the strip's eye looks.
+lastRest = hs.timer.secondsSinceEpoch()
+function M._setLastRest(t) lastRest = t end
+function M._lastRest() return lastRest end
+
 function M.dismissEyeWash(instant)
+  if package.loaded["modules.eye_strip"] then package.loaded["modules.eye_strip"].dismiss(instant) end
   if activeWatchers.eyeWashTimer then activeWatchers.eyeWashTimer:stop(); activeWatchers.eyeWashTimer = nil end
   if activeWatchers.eyeWashKey then activeWatchers.eyeWashKey:delete(); activeWatchers.eyeWashKey = nil end
   local cs = activeWatchers.eyeWashCanvases
@@ -150,8 +175,38 @@ local function snoozeEye(left)
 end
 M._snooze = snoozeEye
 
+-- The eye strip (modules/eye_strip.lua): waits in the bottom bar until you hold Return, then
+-- 3 breaths with the screen faded. A guard clears it if a call/video/agent starts, or once you've
+-- been idle long enough to count as having looked away.
+local function showStrip()
+  local strip = require("modules.eye_strip")
+  local now = M._clock()
+  local tired = (now - lastRest) / (strip.T("eye.tiredAfter") * 60)
+  owed = nil
+  activeWatchers.eyeWashCanvases = {} -- marks the break as on screen for requestEye
+  local function clear()
+    activeWatchers.eyeWashCanvases = nil
+    if activeWatchers.eyeWashTimer then activeWatchers.eyeWashTimer:stop(); activeWatchers.eyeWashTimer = nil end
+  end
+  strip.prompt{
+    tired = tired,
+    onSnooze = function() clear(); snoozeEye(nil) end,
+    onDone = function() clear(); cancels = 0; lastRest = M._clock(); M._markEye(lastRest) end,
+    onAbort = function() clear(); snoozeEye(nil) end,
+  }
+  activeWatchers.eyeWashTimer = hs.timer.doEvery(1, function()
+    if not strip.isShowing() then clear() return end
+    if M.holdReason() then strip.dismiss(); clear() return end -- not a cancel
+    if strip.state == "prompt" and M._idleTime() >= CFG.EYE_RESET_IDLE then
+      strip.dismiss(); clear(); cancels = 0; lastRest = M._clock(); M._markEye(lastRest) -- you looked away anyway
+    end
+  end)
+end
+M._idleTime = function() return hs.host.idleTime() end
+
 function M.showEyeReminder(secs)
   M.dismissEyeWash(true)
+  if T("style") == "strip" then return showStrip() end
   secs = secs or owed or CFG.EYE_SHOW
   owed = nil
   local dark = hs.host.interfaceStyle() == "Dark"
@@ -184,6 +239,8 @@ function M.showEyeReminder(secs)
     left = left - 1
     activeWatchers.eyeWashLeft = left
     if left <= 0 then cancels = 0; M.dismissEyeWash(); return end
+    -- A call, agent test, video etc. started mid-break: get out of the way (not a cancel).
+    if M.holdReason() then owed = nil; M.dismissEyeWash(); return end
     for _, c in ipairs(canvases) do c[3].text = tostring(left) .. " s" end
   end)
 end
@@ -202,10 +259,83 @@ M._dictating = function()
   return ok and ra.isDictating and ra.isDictating() or false
 end
 
+-- ── Hard holds: moments a break must never cut into (no cap) ──────────────────
+-- Each probe is swappable for tests. Slow ones (AX, pmset) are cached a few seconds.
+local function cached(ttl, fn)
+  local at, val = -1e9, nil
+  return function()
+    local t = hs.timer.secondsSinceEpoch()
+    if t - at >= ttl then at = t; local ok, v = pcall(fn); val = ok and v or nil end
+    return val
+  end
+end
+
+-- An app from defer.callApps is on the mic, or any camera is in use.
+M._onCall = function()
+  local ok, mic = pcall(require, "modules.mic_watch")
+  local text = ok and mic.text() or ""
+  for w in tostring(T("defer.callApps")):gmatch("[^,]+") do
+    w = w:lower():gsub("^%s+", ""):gsub("%s+$", "")
+    for line in text:gmatch("[^\n]+") do
+      if w ~= "" and line:lower():find(w, 1, true) then return line:match("([^/]+)$") or w end
+    end
+  end
+  for _, c in ipairs(hs.camera.allCameras()) do
+    if c:isInUse() then return "camera" end
+  end
+  return nil
+end
+M._agentAtControls = function()
+  local ok, cc = pcall(require, "modules.claude_control")
+  return ok and cc.activeId and cc.activeId() ~= nil or false
+end
+M._lecture = function()
+  local ok, lm = pcall(require, "modules.lecture_mode")
+  return ok and lm.isActive and lm.isActive() == true or false
+end
+M._recording = function()
+  local ok, ui = pcall(require, "modules.ui_recorder")
+  return ok and ui.isRecording and ui.isRecording() or false
+end
+M._focusOn = cached(10, function()
+  local ok, cw = pcall(require, "modules.claude_warm")
+  return ok and cw.focusOn and cw.focusOn() or false
+end)
+M._videoApp = cached(5, function()
+  local out = hs.execute("/usr/bin/pmset -g assertions")
+  return require("modules.playback_state").parseAssertions(out)
+end)
+-- Real keys, clicks and mouse moves only (shared clock in modules/input_arming.lua).
+M._mouseIdle = function() return require("modules.input_arming").idle() end
+
+local lastHold, lastHoldWhy = -1e9, nil
+-- The reason a break must wait with no cap, or nil. Also holds for defer.afterHold after one ends.
+function M.holdReason(now)
+  now = now or M._clock()
+  local why
+  local call = M._onCall()
+  if call then why = "on a call (" .. call .. ")"
+  elseif M._agentAtControls() then why = "agent at the controls"
+  elseif M._lecture() then why = "lecture mode"
+  elseif M._recording() then why = "screen recording"
+  elseif T("defer.onFocus") and M._focusOn() then why = "Focus on"
+  elseif T("defer.onVideo") then
+    local v = M._videoApp()
+    if v then why = "video playing (" .. v .. ")" end
+  end
+  if why then lastHold, lastHoldWhy = now, why; return why end
+  if now - lastHold < T("defer.afterHold") then return "just after: " .. tostring(lastHoldWhy) end
+  return nil
+end
+function M._resetHold() lastHold, lastHoldWhy = -1e9, nil end
+
 -- Why the break should wait right now, or nil.
 function M.busyReason(now)
   now = now or M._clock()
+  local hold = M.holdReason(now)
+  if hold then return hold, true end
   if now - lastKey < T("defer.typingQuiet") then return "typing" end
+  if T("defer.mouseQuiet") > 0 and M._mouseIdle() < T("defer.mouseQuiet") then return "using the mouse" end
   if M._readingAloud() then return "reading aloud" end
   -- Dictation: hold while the mic is on and for a few seconds after (the mic flickers off
   -- between phrases), with no cap; the eye break never cuts into dictation.
@@ -225,8 +355,9 @@ function M.requestEye(now)
   end
   pendingSince = pendingSince or now
   if activeWatchers.eyeWashCanvases then pendingSince = nil; return "shown" end
-  local busy = M.busyReason(now)
-  if busy == "dictating" or (busy and now - pendingSince < T("defer.max")) then
+  local busy, hard = M.busyReason(now)
+  M.lastDeferReason = busy
+  if hard or busy == "dictating" or (busy and now - pendingSince < T("defer.max")) then
     if not activeWatchers.eyeDeferTimer then
       activeWatchers.eyeDeferTimer = hs.timer.doEvery(1, function() M.requestEye() end)
     end
@@ -234,11 +365,17 @@ function M.requestEye(now)
   end
   if activeWatchers.eyeDeferTimer then activeWatchers.eyeDeferTimer:stop(); activeWatchers.eyeDeferTimer = nil end
   pendingSince = nil
+  -- The next break counts its 20 minutes from now, when this one actually appears. Counting from
+  -- the tick that asked for it let a break held 13 min by a call or dictation be followed by the
+  -- next one 7 min later (Matt timed it, 2026-11-14).
+  M._markEye(now)
   M.showEyeReminder()
   return "shown"
 end
 
 function M._noteKey(t) lastKey = t or M._clock() end
+-- Tests: forget typing/dictation/hold stamps and any pending break.
+function M._resetDefer() lastKey, lastDictation, pendingSince = 0, -1e9, nil; M._resetHold() end
 function M._owed() return owed end
 
 function M.showHardNudge(activeSecs)
@@ -309,6 +446,7 @@ function M.tick(now, idle)
 
   if idle >= CFG.EYE_RESET_IDLE then
     state.lastEye = now
+    lastRest = now
     return "idle"
   end
 
@@ -319,6 +457,12 @@ function M.tick(now, idle)
   end
 
   local active = now - state.sessionStart
+
+  -- Calls, video, agent tests, lecture, Focus: no nudge or overlay now; try again next tick.
+  local hold = M.holdReason()
+  if hold and (active >= CFG.HARD_AFTER) then
+    return "held: " .. hold
+  end
 
   if active >= CFG.ESCALATE_AFTER then
     if not state.lastEscalate or (now - state.lastEscalate) >= CFG.ESCALATE_REPEAT then
@@ -337,7 +481,7 @@ function M.tick(now, idle)
   end
 
   if (now - state.lastEye) >= CFG.EYE_INTERVAL then
-    state.lastEye = now
+    state.lastEye = now -- provisional; requestEye moves it to when the break really shows
     M.requestEye()
     return "eye"
   end
@@ -361,9 +505,15 @@ end
 function M.start()
   M.stop()
   state = {}
+  pcall(require, "modules.eye_strip") -- loads early so the breath sound is rendered before the first break
   -- Passive listener: only notes when a key was pressed, never blocks or posts input.
-  activeWatchers.eyeKeyTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function() lastKey = M._clock(); return false end)
-  activeWatchers.eyeKeyTap:start()
+  local kb = require("modules.keyd_bridge")
+  if kb.running() then -- via keyd: no Hammerspoon tap in the key path (2026-11-14)
+    kb.onKey("eye_breaks", function() lastKey = M._clock() end)
+  else
+    activeWatchers.eyeKeyTap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function() lastKey = M._clock(); return false end)
+    activeWatchers.eyeKeyTap:start()
+  end
   activeWatchers.eyeBreaksTimer = hs.timer.doEvery(CFG.TICK, function()
     local ok, err = pcall(M.tick)
     if not ok then print("eye_breaks tick error: " .. tostring(err)) end
@@ -377,6 +527,7 @@ function M.stop()
     activeWatchers.eyeBreaksTimer = nil
   end
   M.dismissOverlay()
+  M.dismissEyeWash(true)
   for _, k in ipairs({ "eyeDeferTimer", "eyeSnoozeTimer", "eyeKeyTap" }) do
     if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
   end

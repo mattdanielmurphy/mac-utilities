@@ -133,6 +133,13 @@ end
 function M.start()
   M.stop()
   M.reset()
+  local kb = require("modules.keyd_bridge")
+  if kb.running() then
+    -- keyd runs the breaker now (same knobs), off Hammerspoon's thread (2026-11-14).
+    kb.resetGuard()
+    kb.onGuardTrip(function(pid, reason) trip(reason, pid) end)
+    return
+  end
   activeWatchers.inputGuardTap = hs.eventtap.new({ types.keyDown }, onKey)
   activeWatchers.inputGuardTap:start()
 end

@@ -31,7 +31,7 @@
 -- A holder auto-releases after MAX_HOLD seconds; a queued ask nobody has
 -- polled for QUEUE_IDLE seconds is dropped (its agent died).
 -- Two tiers (Matt, 2026-10-21: full glow only when he must keep hands off):
---   full  (default): centre banner + soft orange edge glow. Agent types, clicks
+--   full  (default): centre banner + soft accent-colour edge glow. Agent types, clicks
 --                    or moves the mouse: Matt must keep his hands off.
 --   light (--light): small pill in the "claude_control_light" HUD slot, no glow.
 --                    Low-impact screen/sound changes (open a file or app, focus a
@@ -91,11 +91,21 @@ local ORPHAN_SECS = 8
 local BLOCK_SECS = 2 * 3600
 
 local layout = require("modules.hud_layout")
+local cc = require("modules.canvas_color")  -- palette role colours + safe alpha changes
+local forceDark  -- nil = follow the system; set only by M._snapshot
+local function roles() return cc.roles{ dark = forceDark } end
 local playback = require("modules.playback_state")
 
 local state = "idle"     -- the banner holder's state
 local lightMode = false  -- the holder's tier
 local waiting = false    -- holder is waiting for Allow / a pause (a show is playing)
+-- Input arming (Matt, 2026-11-14: "If it IS an emergency, don't let my stray typing key presses
+-- control anything. I need to fully stop for a moment before I can control that input (and UI
+-- should reflect this)."). A banner that appears while Matt is typing or moving the mouse is
+-- locked: its buttons are dimmed and clicks do nothing (Stop and the Esc hold always work: they
+-- are the safety exits), and a normal ask's countdown holds until he has been still for a moment
+-- (modules/input_arming.lua, arm.seconds). Urgent asks still count down.
+local armed = true
 local reasonText = ""
 local remaining = 0
 
@@ -162,12 +172,14 @@ local function hideGlow()
   end
 end
 
--- Soft orange glow on the inner 8% of every screen: visible, not alarming.
+-- Soft accent-colour glow on the inner 8% of every screen: visible, not alarming.
 -- Click-through (no mouse callback), pulses gently.
-local function glowColor(a) return { red = 1.0, green = 0.48, blue = 0.10, alpha = a } end
+local glowBase  -- palette accent, read once per banner (drawGlow)
+local function glowColor(a) return cc.withAlpha(glowBase or roles().accent, a) end
 
 local function drawGlow()
   hideGlow()
+  glowBase = roles().accent
   local list = {}
   for _, scr in ipairs(hs.screen.allScreens()) do
     local f = scr:fullFrame()
@@ -217,6 +229,8 @@ end
 
 local function hideBanner()
   waiting = false
+  if activeWatchers.claudeControlArm then activeWatchers.claudeControlArm:cancel() activeWatchers.claudeControlArm = nil end
+  armed = true
   setBannerFlag(false)
   hideGlow()
   if activeWatchers.claudeControlCanvas then
@@ -272,6 +286,7 @@ end
 M.endHold = endHold
 
 local function holdBar(anchor, label)
+  local R = roles()
   local w, h = 300, 34
   local f
   if anchor then
@@ -285,13 +300,13 @@ local function holdBar(anchor, label)
   c:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces)
   c:appendElements(
     { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = 9, yRadius = 9 },
-      fillColor = { hex = "#FFF6E5", alpha = T("look.bannerOpacity") } },
+      fillColor = cc.withAlpha(R.panel, T("look.bannerOpacity")) },
     { type = "text", text = label, frame = { x = 10, y = 3, w = w - 20, h = 16 },
-      textSize = 11, textColor = { hex = "#3B2A12" }, textAlignment = "center" },
+      textSize = 11, textColor = R.text, textAlignment = "center" },
     { type = "rectangle", action = "fill", frame = { x = 12, y = 22, w = w - 24, h = 6 },
-      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = { hex = "#F1E2C6" } },
+      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = R.sunk },
     { type = "rectangle", action = "fill", frame = { x = 12, y = 22, w = 0, h = 6 },
-      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = { hex = "#3B2A12" } }
+      roundedRectRadii = { xRadius = 3, yRadius = 3 }, fillColor = R.text }
   )
   c:show()
   return c, w - 24
@@ -348,6 +363,11 @@ local function holdTap(opts)
     return true
   end
   M._holdHandle = handle  -- tests feed unposted key events through this
+  local okKb, kb = pcall(require, "modules.keyd_bridge")
+  if okKb and kb.running() and not M._testNoPost then
+    -- Esc is held by keyd (2026-11-14): no Hammerspoon tap in the key path during a grant.
+    return kb.claimTap("claude_control_esc", hs.keycodes.map.escape, handle)
+  end
   return hs.eventtap.new({ types.keyDown, types.keyUp }, handle):start()
 end
 
@@ -522,6 +542,10 @@ local function render()
   end
   -- Full banner: a hint line under the buttons (element 8) says what a click does.
   local hint = flash and NO_LINK_FLASH or linked and "Click anywhere to open its thread" or "No thread linked"
+  if not armed then
+    local lockedHint = "Hold still a moment: buttons wake up when you stop typing and moving"
+    if lightMode or waiting then sub = lockedHint else hint = lockedHint end
+  end
   for _, c in ipairs(allCanvases()) do
     c[2].text = title
     c[3].text = sub
@@ -542,6 +566,7 @@ local function pillRect(scr, w, h)
 end
 
 local function lightCanvas(scr)
+  local R = roles()
   local w, h = 432, 62   -- 20% bigger than the first pill (360x52), same text sizes
   local c = hs.canvas.new(pillRect(scr, w, h))
   local chipW, chipGap = 38, 4
@@ -549,89 +574,91 @@ local function lightCanvas(scr)
   c:appendElements(
     { id = "body", type = "rectangle", action = "fill", trackMouseDown = true,
       roundedRectRadii = { xRadius = T("look.pillRadius"), yRadius = T("look.pillRadius") },
-      fillColor = { hex = "#FFF6E5", alpha = T("look.pillOpacity") }, strokeColor = { hex = "#FF7A1A", alpha = 0.8 },
+      fillColor = cc.withAlpha(R.panel, T("look.pillOpacity")), strokeColor = R.lineStrong,
       strokeWidth = T("look.pillBorderWidth") },
     { type = "text", text = "", frame = { x = 14, y = 10, w = w - 98, h = 20 },
-      textSize = 13, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 13, textColor = R.text, textFont = ".AppleSystemUIFontBold",
       textLineBreak = "wordWrap" },
     { type = "text", text = "", frame = { x = 14, y = 37, w = chipsX - 66, h = 16 },
-      textSize = 11, textColor = { hex = "#6B5330" }, textLineBreak = "truncateTail" },
+      textSize = 11, textColor = R.soft, textLineBreak = "truncateTail" },
     { id = "stop", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w - 72, y = 8, w = 60, h = 24 },
-      roundedRectRadii = { xRadius = 7, yRadius = 7 }, fillColor = { hex = "#FF7A1A" } },
+      roundedRectRadii = { xRadius = 7, yRadius = 7 }, fillColor = R.danger },
     { type = "text", text = "Stop", frame = { x = w - 72, y = 11, w = 60, h = 18 },
-      textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 12, textColor = R.onDanger, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" },
     { type = "text", text = "Snooze", frame = { x = chipsX - 50, y = 37, w = 46, h = 16 },
-      textSize = 11, textColor = { hex = "#6B5330" }, textAlignment = "right" }
+      textSize = 11, textColor = R.soft, textAlignment = "right" }
   )
   for i, s in ipairs(SNOOZES) do
     local x = chipsX + (i - 1) * (chipW + chipGap)
     c:appendElements(
       { id = s.id, type = "rectangle", action = "fill", trackMouseDown = true,
         frame = { x = x, y = 35, w = chipW, h = 20 },
-        roundedRectRadii = { xRadius = 6, yRadius = 6 }, fillColor = { hex = "#F1E2C6" } },
+        roundedRectRadii = { xRadius = 6, yRadius = 6 }, fillColor = R.chip },
       { type = "text", text = s.label, frame = { x = x, y = 37, w = chipW, h = 16 },
-        textSize = 11, textColor = { hex = "#3B2A12" }, textAlignment = "center" })
+        textSize = 11, textColor = R.text, textAlignment = "center" })
   end
   return c
 end
 
 -- Waiting pill (a show is playing): same slot as the light pill, with Allow.
 local function waitCanvas(scr)
+  local R = roles()
   local w, h = 432, 62
   local c = hs.canvas.new(pillRect(scr, w, h))
   c:appendElements(
     { id = "body", type = "rectangle", action = "fill", trackMouseDown = true,
       roundedRectRadii = { xRadius = T("look.pillRadius"), yRadius = T("look.pillRadius") },
-      fillColor = { hex = "#FFF6E5", alpha = T("look.pillOpacity") }, strokeColor = { hex = "#FF7A1A", alpha = 0.8 },
+      fillColor = cc.withAlpha(R.panel, T("look.pillOpacity")), strokeColor = R.lineStrong,
       strokeWidth = T("look.pillBorderWidth") },
     { type = "text", text = "", frame = { x = 14, y = 10, w = w - 98, h = 20 },
-      textSize = 13, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 13, textColor = R.text, textFont = ".AppleSystemUIFontBold",
       textLineBreak = "wordWrap" },
     { type = "text", text = "", frame = { x = 14, y = 37, w = w - 98, h = 16 },
-      textSize = 11, textColor = { hex = "#6B5330" }, textLineBreak = "truncateTail" },
+      textSize = 11, textColor = R.soft, textLineBreak = "truncateTail" },
     { id = "allow", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w - 72, y = 8, w = 60, h = 24 },
-      roundedRectRadii = { xRadius = 7, yRadius = 7 }, fillColor = { hex = "#FF7A1A" } },
+      roundedRectRadii = { xRadius = 7, yRadius = 7 }, fillColor = R.accent },
     { type = "text", text = "Allow", frame = { x = w - 72, y = 11, w = 60, h = 18 },
-      textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 12, textColor = R.accentInk, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" },
     { id = "notnow", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w - 72, y = 35, w = 60, h = 20 },
-      roundedRectRadii = { xRadius = 6, yRadius = 6 }, fillColor = { hex = "#F1E2C6" } },
+      roundedRectRadii = { xRadius = 6, yRadius = 6 }, fillColor = R.chip },
     { type = "text", text = "Not now", frame = { x = w - 72, y = 37, w = 60, h = 16 },
-      textSize = 11, textColor = { hex = "#3B2A12" }, textAlignment = "center" })
+      textSize = 11, textColor = R.text, textAlignment = "center" })
   return c
 end
 
 local function fullCanvas(scr)
+  local R = roles()
   local screen = scr:frame()
   local w, h = 560, 134
   local frame = { x = screen.x + (screen.w - w) / 2, y = screen.y + (screen.h - h) / 2, w = w, h = h }
   local c = hs.canvas.new(frame)
   c:appendElements(
     { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = T("look.bannerRadius"), yRadius = T("look.bannerRadius") },
-      fillColor = { hex = "#FFF6E5", alpha = T("look.bannerOpacity") } },
+      fillColor = cc.withAlpha(R.panel, T("look.bannerOpacity")) },
     { type = "text", text = "", frame = { x = 20, y = 16, w = w - 40, h = 26 },
-      textSize = 19, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 19, textColor = R.text, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" },
     { type = "text", text = "", frame = { x = 20, y = 46, w = w - 40, h = 20 },
-      textSize = 13, textColor = { hex = "#6B5330" }, textAlignment = "center",
+      textSize = 13, textColor = R.soft, textAlignment = "center",
       textLineBreak = "wordWrap" },
     { id = "notnow", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w / 2 - 170, y = 76, w = 160, h = 28 },
-      roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = { hex = "#F1E2C6" } },
+      roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = R.chip },
     { type = "text", text = "Not now  ·  hold Esc", frame = { x = w / 2 - 170, y = 81, w = 160, h = 18 },
-      textSize = 12, textColor = { hex = "#3B2A12" }, textAlignment = "center" },
+      textSize = 12, textColor = R.text, textAlignment = "center" },
     { id = "stop", type = "rectangle", action = "fill", trackMouseDown = true,
       frame = { x = w / 2 + 10, y = 76, w = 160, h = 28 },
-      roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = { hex = "#FF7A1A" } },
+      roundedRectRadii = { xRadius = 8, yRadius = 8 }, fillColor = R.danger },
     { type = "text", text = "Stop  ·  keep holding Esc", frame = { x = w / 2 + 10, y = 81, w = 160, h = 18 },
-      textSize = 12, textColor = { hex = "#3B2A12" }, textFont = ".AppleSystemUIFontBold",
+      textSize = 12, textColor = R.onDanger, textFont = ".AppleSystemUIFontBold",
       textAlignment = "center" },
     { type = "text", text = "", frame = { x = 20, y = 110, w = w - 40, h = 16 },
-      textSize = 11, textColor = { hex = "#6B5330" }, textAlignment = "center",
+      textSize = 11, textColor = R.soft, textAlignment = "center",
       textLineBreak = "truncateTail" }
   )
   return c
@@ -644,6 +671,7 @@ end
 -- Pausing lives on its own buttons: "Not now" (full banner, waiting pill), the
 -- Snooze chips (light pill), Stop, and the Esc hold.
 local function onClick(elementId)
+  if not armed and elementId ~= "stop" then return end  -- locked: a stray click does nothing
   local t = active and tickets[active]
   local secs = tostring(elementId):match("^snooze(%d+)$")
   if elementId == "allow" then M.allow()
@@ -659,6 +687,18 @@ local function onClick(elementId)
   end
 end
 M._click = onClick
+M._armed = function() return armed end
+
+-- Locked look: every button but Stop at low opacity.
+local function dimButtons(c, on)
+  for i = 1, #c do
+    local id = c[i].id
+    if id and id ~= "body" and id ~= "stop" then
+      -- Never write the read-back colour table itself: it turns the button black.
+      require("modules.canvas_color").setAlpha(c, i, on and 0.35 or 1)
+    end
+  end
+end
 
 local function makeCanvas(scr)
   local c = (waiting and waitCanvas or lightMode and lightCanvas or fullCanvas)(scr)
@@ -673,6 +713,23 @@ local function makeCanvas(scr)
   if lightMode or waiting then trackFit(c, { 2 }, false) else trackFit(c, { 2, 3 }, true) end
   c:show()
   return c
+end
+
+-- Off-screen snapshot for checks (never shown): M._snapshot("light"|"wait"|"full", dark, locked, path).
+function M._snapshot(kind, dark, locked, path)
+  forceDark = dark and true or false
+  local ok, err = pcall(function()
+    local scr = hs.screen.mainScreen()
+    local c = (kind == "wait" and waitCanvas or kind == "light" and lightCanvas or fullCanvas)(scr)
+    c[2].text = kind == "full" and "Claude wants to take control in 3…" or "Claude, in 3: Screenshot test of the banner colours"
+    c[3].text = kind == "full" and "Screenshot test  ·  Hands off the keyboard and mouse." or "Click: open thread  ·  Hold Esc: pause"
+    if kind == "full" then c[8].text = locked and "Hold still a moment: buttons wake up when you stop typing and moving" or "Click anywhere to open its thread" end
+    if locked then dimButtons(c, true) end
+    c:imageFromCanvas():saveToFile(path)
+    c:delete()
+  end)
+  forceDark = nil
+  return ok and path or tostring(err)
 end
 
 -- One canvas per display; the main screen's is claudeControlCanvas (hold bar anchor).
@@ -716,6 +773,13 @@ local function begin(reason, seconds, light, isWaiting)
   remaining = math.max(1, math.floor(tonumber(seconds) or 3))
   setState("pending")
   drawBanner()
+  armed = true
+  if activeWatchers.claudeControlArm then activeWatchers.claudeControlArm:cancel() end
+  activeWatchers.claudeControlArm = require("modules.input_arming").arm{ onChange = function(a)
+    armed = a
+    for _, c in ipairs(allCanvases()) do dimButtons(c, not a) end
+    render()
+  end }
   render()
 
   -- One unbroken Esc hold: pause at holdPause, stop at holdStop. Only real key
@@ -764,6 +828,7 @@ local function begin(reason, seconds, light, isWaiting)
       end
       -- An agent's ask is granted only once its wrapper has polled: a wrapper that
       -- gave up never polls, so its ticket waits here and is dropped as an orphan.
+      if not armed and not (t and t.urgent) then render() return end  -- wait for Matt to pause
       local unpolled = t and t.agent and t.agent ~= "" and not t.quiet and not t.polled
       if remaining > 1 or not unpolled then remaining = remaining - 1 end
       if remaining <= 0 then grant(active) end
@@ -773,6 +838,16 @@ local function begin(reason, seconds, light, isWaiting)
       if held >= MAX_HOLD then M.done(active) end
     end
   end)
+end
+
+-- Tell the Matt activity log an agent now holds input (modules/matt_activity.lua),
+-- so his real key presses/clicks during the test get noted. Never lets it break us.
+local function noteHeld(id)
+  local ma = package.loaded["modules.matt_activity"]
+  if type(ma) == "table" and ma.held then
+    local ok, err = pcall(ma.held, id)
+    if not ok then print("claude_control: matt_activity " .. tostring(err)) end
+  end
 end
 
 -- Give the banner to the next ticket in line. Runs on a timer: building the
@@ -797,6 +872,7 @@ advance = function()
   end
   state = "pending"
   t.state = "pending"
+  noteHeld(id)
   activeWatchers.claudeControlStart = hs.timer.doAfter(0, function()
     if active ~= id then return end
     local function go(isWaiting)
@@ -885,12 +961,25 @@ function M.withInput(name, fn, opts)
   end)
 end
 
+-- peek: the same answer as state(), without counting as the holder's heartbeat. For the
+-- state file (modules/state_files.lua), so watchers read a file instead of spawning `hs`.
+function M.peek(id)
+  id = id or active
+  local t = id and tickets[id]
+  if not t then return "idle" end
+  return M._describe(id, t)
+end
+
 function M.state(id)
   id = id or active
   local t = id and tickets[id]
   if not t then return "idle" end
   t.seen = hs.timer.secondsSinceEpoch()
   t.polled = true
+  return M._describe(id, t)
+end
+
+function M._describe(id, t)
   if t.state == "queued" then
     for i, q in ipairs(queue) do if q == id then return "queued:" .. i end end
   end
@@ -994,6 +1083,14 @@ function M.heldBy(agent)
   return "none"
 end
 
+-- The agent ticket holding the banner right now (pending or granted), or nil.
+-- Quiet locks (automations) don't count. Used by modules/matt_activity.lua.
+function M.activeId()
+  local t = active and tickets[active]
+  if t and not t.quiet and (t.state == "pending" or t.state == "granted") then return active end
+  return nil
+end
+
 -- Let a stopped agent ask again: unblock(agent), or unblock() for all.
 function M.unblock(agent)
   if agent then blocked[agent] = nil else blocked = {} end
@@ -1033,6 +1130,7 @@ local function restoreHolder()
   tickets[h.id] = { reason = h.reason, seconds = 1, state = "queued", seen = hs.timer.secondsSinceEpoch(),
                     polled = true, agent = h.agent, pid = h.pid, light = h.light, bg = true, link = h.link }
   active = h.id
+  noteHeld(h.id)
   begin(h.reason, 1, h.light, false)
   grant(h.id)
   render()

@@ -44,6 +44,7 @@ M.SHAREABLE = {
   "modules.otp_copy",
   "modules.gif_picker",
   "modules.tv_resync",
+  "modules.tv_follow", -- needs lidstay's TV server; UTILITIES.md says how
   -- Claude tools: CLAUDE_SETUP.md teaches the user's Claude to use them.
   "modules.claude_control",
   "modules.claude_notify",
@@ -57,6 +58,7 @@ M.SHAREABLE = {
 -- a new module can't slip into the public export, or out of it, by accident.
 M.MATT_ONLY = {
   ["modules.question_keys"] = "new, not reviewed for sharing yet (2026-11-10)",
+  ["modules.coach"] = "reads ai-os services/coach and Matt's iMessage chat (2026-11-17)",
   ["modules.study_quiz"] = "new, not reviewed for sharing yet (2026-11-10)",
   ["modules.forced_checkin"] = "new, not reviewed for sharing yet (2026-11-10)",
   ["modules.piano_lock"] = "new, not reviewed for sharing yet (2026-11-10)",
@@ -78,10 +80,20 @@ M.MATT_ONLY = {
   ["modules.claude_warm"] = "Matt's Claude project threads",
   ["modules.hey_claude"] = "ai-os voice scripts",
   ["modules.trackpad_mixer_summon"] = "needs Matt's trackpad-mixer app",
+  ["modules.play_pause_muzak"] = "needs Matt's Muzak app (mc CLI)",
+  ["modules.open_questions"] = "reads ai-os open-questions queue, answers into ai-os session inboxes",
   ["modules.wifi_home"] = "Matt's home and hotspot networks",
   ["modules.call_transcript"] = "needs Matt's call-transcript tool and Audio Hijack setup",
   ["modules.tweaks_panel"] = "lists Matt's apps' tweak files",
   ["modules.thread_queue"] = "reads ai-os thread queue files",
+  ["modules.window_tiler"] = "new, not reviewed for sharing yet (2026-11-18)",
+  ["modules.matt_activity"] = "logs Matt's own input for agent tests (2026-11-18)",
+  ["modules.bottom_bar"] = "new, not reviewed for sharing yet (2026-11-18)",
+  ["modules.agent_replies"] = "reads ai-os agent reports (2026-11-18)",
+  ["modules.state_files"] = "state files for Matt's mods and daemons (2026-11-18)",
+  ["modules.new_task"] = "starts ai-os threads (2026-11-18)",
+  ["modules.music_links"] = "runs ai-os services/music-links (2026-11-18)",
+  ["modules.always_on"] = "runs ai-os scripts/always_on.py (2026-11-18)",
 }
 
 local shareableSet = {}
@@ -161,7 +173,7 @@ function M.showGuide()
     end
   end)
   _G.activeWatchers.suiteGuide = wv
-  wv:show():bringToFront(true)
+  wv:show():level(hs.drawing.windowLevels.normal) -- never bringToFront(true): screen-saver level covers ⌘-Tab and popups
   local win = wv:hswindow()
   if win then win:focus() end
 end

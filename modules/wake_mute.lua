@@ -26,26 +26,16 @@ local activeWatchers = _G.activeWatchers
 
 local sleepOrLockTime = nil
 
+-- Mutes the default output and the built-in speakers (in case headphones come out) through the
+-- bin/audio-devices helper, never hs.audiodevice: wake is exactly when coreaudiod is slowest, and
+-- a stuck Core Audio call here would freeze the keyboard (2026-11-15).
 local function muteAudio(reason)
-  local dev = hs.audiodevice.defaultOutputDevice()
-  local didMute = false
-
-  if dev and not dev:muted() then
-    dev:setMuted(true)
-    didMute = true
-  end
-
-  -- Extra safeguard: ensure built-in speakers are also muted in case headphones disconnect
-  local internal = hs.audiodevice.findOutputByName("MacBook Pro Speakers")
-  if internal and internal ~= dev and not internal:muted() then
-    internal:setMuted(true)
-    didMute = true
-  end
-
-  if didMute then
-    hs.alert.closeAll()
-    hs.alert.show("🔇 Audio Muted (" .. reason .. ")", 2.0)
-  end
+  require("modules.audio_events").run({ "--mute-outputs" }, function(out)
+    if out and out:find("muted", 1, true) then
+      hs.alert.closeAll()
+      hs.alert.show("🔇 Audio Muted (" .. reason .. ")", 2.0)
+    end
+  end, 15)
 end
 
 -- Mute unless at home. Retries while the network is unknown (nil SSID).
