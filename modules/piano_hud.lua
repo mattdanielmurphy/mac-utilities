@@ -580,10 +580,12 @@ end
 -- Window frame: the panel alone, or the panel plus the card above it. The panel's
 -- bottom-right corner stays put either way (the page anchors it bottom-right).
 -- Anchored at the "piano_hud" slot in hud_slots.json; the card grows into "piano_card".
+-- The window is the shared HUD component (modules/hud_move.lua): drag to move, corners zoom, two fingers move,
+-- pinch/spread zooms, a two-finger flick docks it in a corner. Sizes here are unzoomed; move.rect scales them.
 local move = require("modules.hud_move")
 local function slotRect(w, h)
-  -- Where Matt last dragged it (any display), pinned at its bottom-right corner; else the slot.
-  return move.anchored("piano_hud", w, h) or layout.rect("piano_hud", w, h)
+  -- Where you last put it (any display), pinned at the corner it was docked to; else the slot.
+  return move.rect("piano_hud", w, h, function(W, H) return layout.rect("piano_hud", W, H) end)
 end
 local function hudRect()
   if state.keyMode then
@@ -598,7 +600,11 @@ local function hudRect()
 end
 -- Puts the window at hudRect(), except mid-drag (the mouse owns it then).
 local function place(wv)
-  if wv and not move.dragging("piano_hud") then wv:frame(hudRect()) end
+  if wv and not move.dragging("piano_hud") then
+    local r = hudRect()
+    wv:frame(r)
+    move.placed("piano_hud", r)
+  end
 end
 
 local render, closeCard, hideHud
@@ -630,6 +636,7 @@ end
 
 local function onMessage(msg)
   local body = msg and msg.body or {}
+  if move.handle("piano_hud", body) then return end
   if body.type == "saveMidi" then
     M.saveMidi()
   elseif body.type == "toggle" then
@@ -643,7 +650,10 @@ local function onMessage(msg)
     end })
   elseif body.type == "dragReset" and activeWatchers.pianoHudView then
     move.reset("piano_hud")
-    activeWatchers.pianoHudView:frame(hudRect())
+    place(activeWatchers.pianoHudView)
+  elseif body.type == "expand" then
+    -- Hook for the future expanded window (its own design thread): set M.onExpand to open it.
+    if M.onExpand then M.onExpand() end
   elseif body.type == "kpX" then
     M.dismiss()
   elseif (body.type == "kpPrev" or body.type == "kpNext") and okLock then
@@ -672,6 +682,10 @@ local function ensureHud()
   if activeWatchers.pianoHudView then return activeWatchers.pianoHudView end
   state.ready = false
   local uc = hs.webview.usercontent.new("pianoHud"):setCallback(onMessage)
+  move.attach("piano_hud", { uc = uc, handler = "pianoHud", origin = "100% 100%",
+    view = function() return activeWatchers.pianoHudView end,
+    place = function() place(activeWatchers.pianoHudView) end,
+    onMoved = function() state.lastEvent = hs.timer.secondsSinceEpoch() end })
   local wv = hs.webview.new(hudRect(), { developerExtrasEnabled = false }, uc)
   -- The first notes arrive before the page loads; draw them once it has.
   wv:navigationCallback(function(action)
@@ -750,7 +764,7 @@ function M.keyRender(st)
       label = "Chromatic", name = st.current, rel = "", off = true, manual = false,
       pcs = st.pitchClasses, names = st.noteNames, tonic = -1, held = heldPcs, stage = 1, peek = false,
       hold = hold, past = past, hint = "Every note plays · ‹ › or Off locks a key",
-      hintParts = { "Every note plays", "‹ › or Off locks a key" },
+      hintParts = { "Every note plays", "‹ › or Off locks a key", "two fingers move it, flick to a corner" },
     }) .. ")")
     return
   end
@@ -768,6 +782,7 @@ function M.keyRender(st)
     elseif info.notes > 20 then hintParts[#hintParts + 1] = info.wrongPct .. "% wrong" end
   end
   if stage[2] then hintParts[#hintParts + 1] = stage[2] end
+  hintParts[#hintParts + 1] = "two fingers move it, flick to a corner"
   local hint = table.concat(hintParts, " · ")
   local d = {
     label = (song.applied and st.current == song.applied) and "Song key"
@@ -844,6 +859,7 @@ local function showHud()
   place(wv)
   wv:show(CFG.FADE)
   state.visible = true
+  move.shown("piano_hud", wv)
   -- Esc closes the key panel (never swallowed: the key still reaches the app in front).
   stopEscWatch()
   activeWatchers.pianoHudEsc = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
@@ -865,6 +881,7 @@ function hideHud()
   if not state.visible then return end
   closeCard()
   if activeWatchers.pianoHudView then activeWatchers.pianoHudView:hide(CFG.FADE) end
+  move.hidden("piano_hud")
   state.visible = false
   state.lastChord, state.shown = nil, nil
 end
@@ -1028,6 +1045,7 @@ function M.stop()
   if activeWatchers.pianoHudScreens then activeWatchers.pianoHudScreens:stop(); activeWatchers.pianoHudScreens = nil end
   if activeWatchers.pianoHudOffKey then activeWatchers.pianoHudOffKey:delete(); activeWatchers.pianoHudOffKey = nil end
   if activeWatchers.pianoHudView then activeWatchers.pianoHudView:delete(); activeWatchers.pianoHudView = nil end
+  move.hidden("piano_hud")
   activeWatchers.pianoHudDevices = nil
   state.visible, state.ready, state.cardOpen, state.cardHeight = false, false, false, 0
   if activeWatchers.pianoHudSettle then activeWatchers.pianoHudSettle:stop(); activeWatchers.pianoHudSettle = nil end
