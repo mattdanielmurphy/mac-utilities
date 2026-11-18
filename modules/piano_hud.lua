@@ -738,7 +738,9 @@ function M.keyRender(st)
   end
   local hold, past = nil, false
   if #inKeyHeld > 0 then
-    local c = M.nameChord(inKeyHeld); hold = c and c.name
+    -- A key going up while others are held (legato) redraws the glow but keeps the name.
+    if state.releasing and state.holdName then hold = state.holdName
+    else local c = M.nameChord(inKeyHeld); hold = c and c.name; state.holdName = hold end
   elseif state.shown and state.shownPast then
     hold, past = state.shown.name, true
   end
@@ -932,9 +934,12 @@ local function onMidi(_, devName, cmd, _, meta)
     state.releasing = true
     if activeWatchers.pianoHudSettle then activeWatchers.pianoHudSettle:stop(); activeWatchers.pianoHudSettle = nil end
     state.held[key] = nil
-    -- Release fragments never reach the screen; switch once every key is up.
+    -- Release fragments never reach the chord name; switch it once every key is up. The key
+    -- strip still drops the released key's glow right away (legato overlaps left it lit).
     if next(state.held) == nil then
       if state.lastChord then render(state.lastChord, true) else render(false, false) end
+    elseif state.keyMode then
+      render()
     end
   end
 end
