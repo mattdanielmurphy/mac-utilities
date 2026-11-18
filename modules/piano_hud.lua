@@ -301,6 +301,11 @@ local HTML = [[
   #kpHold, #kpMuted { font-family: var(--g-font-round); }
   .kp-name { flex: 0 1 auto; }
   .kp-weekly { display: none; }
+  /* Off / Chromatic chip: shows its shortcut; lit (accent) while every note passes. */
+  .kp-top .g-chip { padding: 0 5px; }   /* both chips + Esc + × fit the 300 px row */
+  .kp-off .kc { margin-left: 3px; font-size: 9px; letter-spacing: -0.06em; opacity: 0.75; }
+  .kp-off.on { background: var(--g-accent); color: var(--g-accent-ink); border-color: var(--g-accent-edge); }
+  .kp-off.on:hover { color: var(--g-accent-ink); }
   .kp-muted { transition: opacity 0.5s; }
   .kp-hint { text-align: right; }
   .kp-song { display: none; }
@@ -333,6 +338,7 @@ local HTML = [[
   <div class="g-row h18 kp-top"><span class="g-label g-keep" id="kpLabel">Key of the week</span>
     <span class="g-grow"></span>
     <span class="g-chip kp-weekly" id="kpWeekly" title="Go back to this week's key">back to weekly</span>
+    <span class="g-chip kp-off" id="kpOff" title="Off / Chromatic: every note plays, nothing is blocked (⌃⌥⌘O). Press again, ‹ › or back to weekly to lock a key again"><span id="kpOffTxt">Off</span><span class="kc">⌃⌥⌘O</span></span>
     <span class="g-kbd">Esc</span><button class="g-icon" id="kpX" title="Hide (Esc). Hides on its own after 2 idle minutes and comes back when you play again">×</button></div>
   <div class="g-row h18 kp-song" id="kpSongRow"><span class="g-live g-strong" id="kpSong"></span></div>
   <div class="g-row h28"><button class="g-arrow" id="kpPrev" title="Previous key (one flat more)">‹</button>
@@ -400,12 +406,12 @@ local HTML = [[
   // Drag the panel anywhere that isn't a control (shared modules/hud_move.lua); double-click the
   // top row to send it back to its slot.
   document.getElementById('kp').addEventListener('mousedown', function (e) {
-    if (e.button === 0 && !e.target.closest('.g-icon, .g-arrow, .kp-weekly')) send({ type: 'dragStart' });
+    if (e.button === 0 && !e.target.closest('.g-icon, .g-arrow, .kp-weekly, .kp-off')) send({ type: 'dragStart' });
   });
   document.querySelector('.kp-top').addEventListener('dblclick', function (e) {
-    if (!e.target.closest('.g-icon, .kp-weekly')) send({ type: 'dragReset' });
+    if (!e.target.closest('.g-icon, .kp-weekly, .kp-off')) send({ type: 'dragReset' });
   });
-  ['kpX', 'kpPrev', 'kpNext', 'kpWeekly'].forEach(function (id) {
+  ['kpX', 'kpPrev', 'kpNext', 'kpWeekly', 'kpOff'].forEach(function (id) {
     document.getElementById(id).addEventListener('mousedown', function (e) {
       e.stopPropagation(); send({ type: id });
     });
@@ -444,7 +450,9 @@ local HTML = [[
     document.getElementById('kpSongRow').style.display = d.song ? 'flex' : 'none';
     document.getElementById('kpName').textContent = pretty(d.name);
     document.getElementById('kpRel').textContent = d.rel ? pretty(d.rel) : '';
-    document.getElementById('kpWeekly').style.display = d.manual ? 'block' : 'none';
+    document.getElementById('kpWeekly').style.display = (d.manual || d.off) ? 'block' : 'none';
+    var off = document.getElementById('kpOff');
+    off.className = 'g-chip kp-off' + (d.off ? ' on' : '');
     var st = document.getElementById('kpStrip'), lt = document.getElementById('kpLetters');
     st.style.display = 'none'; lt.style.display = 'none';
     var view = d.peek ? 1 : d.stage;
@@ -503,6 +511,17 @@ local function lockState()
   local ok, st = pcall(lock.getState)
   if not ok or type(st) ~= "table" or st.mode == "off" or not st.pitchClasses then return nil end
   return st
+end
+
+-- Off / Chromatic from the HUD (piano_lock.setOff): the panel stays up with every key live.
+-- Only the HUD's own Off counts; the lock.enabled tweak (master switch) still shows the chord panel.
+local CHROMA = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" }
+local function offState()
+  local pl = _G.pianoLock
+  if not okLock or not (pl and pl.isOff and pl.isOff()) then return nil end
+  local pcs = {}
+  for pc = 0, 11 do pcs[#pcs + 1] = pc end
+  return { off = true, mode = "off", current = "Off · all notes", root = -1, pitchClasses = pcs, noteNames = CHROMA }
 end
 
 -- Song title without version tags ("(Remastered 2011)", "- 2011 Remaster", "[Live]"), so the name fits.
@@ -628,15 +647,21 @@ local function onMessage(msg)
   elseif body.type == "kpX" then
     M.dismiss()
   elseif (body.type == "kpPrev" or body.type == "kpNext") and okLock then
-    local st = lockState()
+    -- While Off, the arrows step from the key that was locked before and turn the lock back on.
+    local okCur, cur = pcall(lock.current)
+    local root = okCur and cur and cur.root
     local i = 1
-    for k, pc in ipairs(FIFTH_PC) do if st and pc == st.root then i = k end end
+    for k, pc in ipairs(FIFTH_PC) do if pc == root then i = k end end
     i = ((i - 1 + (body.type == "kpNext" and 1 or -1)) % 12) + 1
     lock.setScale(FIFTHS[i] .. " major")
+    if offState() then _G.pianoLock.setOff(false) end
     state.lastEvent = hs.timer.secondsSinceEpoch()
   elseif body.type == "kpWeekly" and okLock then
     lock.setScale("weekly")
+    if offState() then _G.pianoLock.setOff(false) end
     state.lastEvent = hs.timer.secondsSinceEpoch()
+  elseif body.type == "kpOff" then
+    M.toggleOff()
   elseif body.type == "cardHeight" and state.cardOpen then
     state.cardHeight = tonumber(body.h) or 0
     place(activeWatchers.pianoHudView)
@@ -674,7 +699,7 @@ function render(c, past)
   if c ~= nil or past ~= nil then state.shown, state.shownPast = c, past or false end
   local wv = ensureHud()
   if not state.ready then return end
-  local st = lockState()
+  local st = lockState() or offState()
   if st then return M.keyRender(st) end
   if state.keyMode then
     state.keyMode = false
@@ -716,6 +741,16 @@ function M.keyRender(st)
     local c = M.nameChord(inKeyHeld); hold = c and c.name
   elseif state.shown and state.shownPast then
     hold, past = state.shown.name, true
+  end
+  if st.off then   -- Off / Chromatic: full two-octave strip, no learning stats, no muted flashes
+    state.keyMode = true
+    wv:evaluateJavaScript("keyUpdate(" .. hs.json.encode({
+      label = "Chromatic", name = st.current, rel = "", off = true, manual = false,
+      pcs = st.pitchClasses, names = st.noteNames, tonic = -1, held = heldPcs, stage = 1, peek = false,
+      hold = hold, past = past, hint = "Every note plays · ‹ › or Off locks a key",
+      hintParts = { "Every note plays", "‹ › or Off locks a key" },
+    }) .. ")")
+    return
   end
   local info = fam.info(st.pitchClasses)
   local muted = state.muted and now < state.muted.untilT and state.muted.pc or nil
@@ -925,6 +960,22 @@ local function connectDevices()
   activeWatchers.pianoHudDevices = state.devices
 end
 
+-- Shows the panel now (no note needed) and keeps it up for the usual idle time.
+function M.show()
+  state.dismissed = false
+  state.lastEvent = hs.timer.secondsSinceEpoch()
+  showHud()
+  render()
+end
+
+-- Off / Chromatic on or off (⌃⌥⌘O, or the Off chip), then shows the panel so you see it land.
+function M.toggleOff()
+  local pl = _G.pianoLock
+  if not (pl and pl.toggleOff) then print("⚠️ piano_hud: piano_lock isn't running, can't switch Off"); return end
+  pl.toggleOff()
+  M.show()
+end
+
 -- ── Lifecycle ──────────────────────────────────────────────────────────────────
 function M.start()
   M.stop()
@@ -950,6 +1001,9 @@ function M.start()
   activeWatchers.pianoHudScreens = hs.screen.watcher.new(function()
     place(activeWatchers.pianoHudView)
   end):start()
+
+  -- ⌃⌥⌘O: Off / Chromatic toggle (shown on the panel's Off chip).
+  activeWatchers.pianoHudOffKey = hs.hotkey.bind({ "ctrl", "alt", "cmd" }, "O", function() M.toggleOff() end)
 end
 
 function M.stop()
@@ -967,6 +1021,7 @@ function M.stop()
   state.devices, state.held = {}, {}
   if activeWatchers.pianoHudTimer then activeWatchers.pianoHudTimer:stop(); activeWatchers.pianoHudTimer = nil end
   if activeWatchers.pianoHudScreens then activeWatchers.pianoHudScreens:stop(); activeWatchers.pianoHudScreens = nil end
+  if activeWatchers.pianoHudOffKey then activeWatchers.pianoHudOffKey:delete(); activeWatchers.pianoHudOffKey = nil end
   if activeWatchers.pianoHudView then activeWatchers.pianoHudView:delete(); activeWatchers.pianoHudView = nil end
   activeWatchers.pianoHudDevices = nil
   state.visible, state.ready, state.cardOpen, state.cardHeight = false, false, false, 0
