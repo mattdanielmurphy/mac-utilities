@@ -245,6 +245,11 @@
     "feedback": "feedback box anchored above its own item at the bottom bar's right end (reads bottom_bar.frame())",
     "field_pill": "dictation pill sits at the caret of the focused text field",
     "snooze_sheet": "snooze sheet centred over Claude's window with a dim backdrop: modal, closes on Enter/Esc",
-    "tv_follow": "edge glow along the menu-bar strip where the cursor crosses to the TV: anchored to that screen edge, transient"
+    "tv_follow": "edge glow along the menu-bar strip where the cursor crosses to the TV: anchored to that screen edge, transient",
+    "center_toast": "centre toast (components B7): middle of the screen under the pointer, click-through, transient; replaces hs.alert",
+    "takeover": "full-screen takeover (components B7): dims every display, card centred: modal",
+    "web_sheet": "web sheet host (components B7): covers its target window (e.g. Claude's), modal, closes on Esc",
+    "picker": "picker host (components B7): on demand, centred upper third, user-placed via hud_move, closes on pick/Esc",
+    "float_window": "titled floating window (components B7): user-placed, frame remembered by hud_move"
   }
 }

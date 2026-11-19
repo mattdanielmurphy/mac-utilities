@@ -456,4 +456,151 @@ function M.open(opts)
   })
 end
 
+-- ── Edit mode: set knobs by app name, and one bridge for every webview HUD ───────
+-- (components-all-apps.md §1.3, package B7.) Edit mode's handles and the Tweaks panel both land here, so they
+-- always agree. Numbers are clamped to the knob's min/max and rounded to its step, like Mattinee's /api/tweaks
+-- and hud-kit Tweaks.set. The owner's pathwatcher then applies the new value within a second.
+--
+--   tweaks.set("Corner notes", "look.width", 340)          --> 340 (or nil, "why")
+--   tweaks.setMany("Corner notes", { ["look.width"] = 340, ["timing.hold"] = 5 })
+--   tweaks.meta("Corner notes", { "look.width" })           --> { ["look.width"] = { value, default, min, max, step, note } }
+--
+-- A webview HUD (see modules/web_sheet.lua, picker.lua, float_window.lua, which wire it for you):
+--   local br = tweaks.bridge("Corner notes", "myPort")     -- myPort = the HUD's hs.webview.usercontent name
+--   uc:injectScript({ source = br.js, mainFrame = true, injectionTime = "documentStart" })
+--   in the usercontent callback:  if br.handle(msg.body, wv) then return end
+--   in the page:                  EDIT.start(HSTweaks.host)  (or HSTweaks.read() / HSTweaks.write({key: n}))
+-- hs.webview messages can't answer back, so the page's Promise is settled by an evaluateJavaScript reply.
+
+-- A number clamped to knob.min/max and rounded to knob.step (counted from min, or 0).
+function M.clampStep(v, knob)
+  local lo, hi, step = tonumber(knob.min), tonumber(knob.max), tonumber(knob.step)
+  if lo and v < lo then v = lo end
+  if hi and v > hi then v = hi end
+  if step and step > 0 then
+    local base = lo or 0
+    v = base + math.floor((v - base) / step + 0.5) * step
+    v = tonumber(string.format("%.10g", v))
+    if hi and v > hi then v = hi end
+  end
+  return v
+end
+
+-- The tweaks file for a panel app name (from the registry), or the path itself.
+function M.fileFor(app)
+  if type(app) ~= "string" or app == "" then return nil end
+  if app:sub(1, 1) == "/" then return app end
+  return M.apps()[app]
+end
+
+-- Checks one change against its knob. Returns the value to save, or nil and why.
+function M.validate(knob, key, value)
+  if type(knob) ~= "table" then return nil, "no knob called " .. tostring(key) end
+  local want = knob.default
+  if want == nil then want = knob.value end
+  want = type(want)
+  if want == "number" then
+    local n = tonumber(value)
+    if not n or n ~= n or n == math.huge or n == -math.huge then return nil, key .. " must be a number" end
+    return M.clampStep(n, knob)
+  end
+  if type(value) ~= want then return nil, key .. " must be a " .. want end
+  return value
+end
+
+-- Sets several knobs of one app in one write. All or nothing: one bad key and nothing is written.
+-- Returns { key = savedValue }, or nil and why.
+function M.setMany(app, changes)
+  local file = M.fileFor(app)
+  if not file then return nil, "no tweaks registered for " .. tostring(app) end
+  local doc = M.readDoc(file)
+  if not (doc and type(doc.tweaks) == "table") then return nil, "couldn't read " .. file end
+  local saved = {}
+  for key, value in pairs(changes or {}) do
+    local v, err = M.validate(doc.tweaks[key], key, value)
+    if v == nil then return nil, err end
+    saved[key] = v
+  end
+  for key, v in pairs(saved) do doc.tweaks[key].value = v end
+  if next(saved) and not M.writeFile(file, M.encode(doc)) then return nil, "couldn't write " .. file end
+  return saved
+end
+
+-- Sets one knob of a registered app. Returns the saved value, or nil and why.
+function M.set(app, key, value)
+  local saved, err = M.setMany(app, { [key] = value })
+  if not saved then return nil, err end
+  return saved[key]
+end
+
+-- What Edit mode reads: { key = { value, default, min, max, step, note } } for `keys` (every knob when empty).
+function M.meta(app, keys)
+  local file = M.fileFor(app)
+  if not file then return nil, "no tweaks registered for " .. tostring(app) end
+  local doc = M.readDoc(file)
+  if not (doc and type(doc.tweaks) == "table") then return nil, "couldn't read " .. file end
+  local want = nil
+  if type(keys) == "table" and #keys > 0 then
+    want = {}
+    for _, k in ipairs(keys) do want[k] = true end
+  end
+  local out = {}
+  for key, knob in pairs(doc.tweaks) do
+    if (not want or want[key]) and type(knob) == "table" then
+      out[key] = { value = knob.value, default = knob.default, min = knob.min, max = knob.max,
+        step = knob.step, note = knob.note }
+    end
+  end
+  return out
+end
+
+-- Answers one page message ({ op = "read", keys } or { op = "write", changes }). Returns answer, err.
+function M.answer(app, body)
+  if type(body) ~= "table" then return nil, "no op" end
+  if body.op == "read" then return M.meta(app, body.keys) end
+  if body.op == "write" then
+    local saved, err = M.setMany(app, body.changes)
+    if not saved then return nil, err end
+    return { ok = true, saved = saved }
+  end
+  return nil, "unknown op " .. tostring(body.op)
+end
+
+M.BRIDGE_JS = [[
+(function () {
+  if (window.HSTweaks) return;
+  var port = '@PORT@', n = 0, wait = {};
+  function send(msg) {
+    return new Promise(function (ok, no) {
+      var id = ++n; wait[id] = { ok: ok, no: no }; msg.type = 'tweaks'; msg.rid = id;
+      try { webkit.messageHandlers[port].postMessage(msg); } catch (e) { delete wait[id]; no(e); }
+    });
+  }
+  window.HSTweaks = {
+    _reply: function (id, err, answer) { var w = wait[id]; if (!w) return; delete wait[id]; if (err) w.no(new Error(err)); else w.ok(answer); },
+    read: function (keys) { return send({ op: 'read', keys: keys || [] }); },
+    write: function (changes) { return send({ op: 'write', changes: changes || {} }); }
+  };
+  HSTweaks.host = { read: function () { return HSTweaks.read([]); }, write: function (c) { return HSTweaks.write(c); } };
+  window.dispatchEvent(new Event('hstweaks-ready'));
+})();
+]]
+
+-- A bridge for one webview HUD: br.js goes into the page, br.handle(body, wv) answers its messages.
+function M.bridge(app, port)
+  local b = { app = app, port = port }
+  b.js = M.BRIDGE_JS:gsub("@PORT@", function() return tostring(port):gsub("[^%w_]", "") end)
+  function b.handle(body, wv)
+    if type(body) ~= "table" or body.type ~= "tweaks" then return false end
+    local answer, err = M.answer(b.app, body)
+    if wv and body.rid then
+      local enc = function(v) return v == nil and "null" or hs.json.encode(v) end
+      wv:evaluateJavaScript(("window.HSTweaks && HSTweaks._reply(%d, %s, %s)"):format(
+        math.floor(tonumber(body.rid) or 0), err and jsonString(err) or "null", answer and enc(answer) or "null"))
+    end
+    return true
+  end
+  return b
+end
+
 return M
