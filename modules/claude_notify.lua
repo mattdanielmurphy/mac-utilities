@@ -269,7 +269,7 @@ showNext = function()
 end
 
 function M.show(msg)
-  if require("modules.demo_mode").active() then return end -- demo mode: nothing visible (2026-11-19)
+  if require("modules.demo_mode").active("toasts") then return end -- demo mode / DND: nothing visible (2026-11-19)
   if type(msg) == "string" then msg = { title = msg } end
   queue[#queue + 1] = msg or {}
   -- Draw on a timer so an `hs -c` caller returns at once (see claude_control).
@@ -295,7 +295,7 @@ local function parse(path)
 end
 
 local function scanInbox()
-  if require("modules.demo_mode").active() then return end -- demo mode: nothing visible (2026-11-19) -- files wait in the inbox
+  if require("modules.demo_mode").active("toasts") then return end -- demo mode / DND: nothing visible (2026-11-19) -- files wait in the inbox
   local names = {}
   for name in hs.fs.dir(INBOX) do
     if name:sub(1, 1) ~= "." and (name:sub(-5) == ".json" or name:sub(-4) == ".txt") then

@@ -444,7 +444,7 @@ end
 -- ── Core loop ──────────────────────────────────────────────────────────────────
 -- `now` and `idle` can be passed in for testing.
 function M.tick(now, idle)
-  if require("modules.demo_mode").active() then return end -- demo mode: nothing visible (2026-11-19)
+  if require("modules.demo_mode").active("breaks") then return end -- demo mode / DND: nothing visible (2026-11-19)
   now = now or os.time()
   idle = idle or hs.host.idleTime()
 

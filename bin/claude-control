@@ -79,9 +79,9 @@ case "$1" in
     # no banner/pill; after ~9 min give up with a clear message (Bash tools cap at 10 min).
     if [[ $cmd == ask || -n $CLAUDE_CODE_SESSION_ID || -n $CODEX_SESSION_ID ]]; then
       DM=${0:A:h}/demo-mode; t0=$SECONDS; said=false
-      while $DM status >/dev/null 2>&1; do
-        $said || { echo "demo mode: Matt is presenting ($($DM status)); waiting silently, no banner" >&2; said=true; }
-        (( SECONDS - t0 > 540 )) && { echo "demo mode on ($($DM status)): Matt is presenting. Don't ask again or act on his screen until it ends; do headless work only."; exit 1; }
+      while $DM status asks >/dev/null 2>&1; do
+        $said || { echo "demo mode: Matt is presenting or in Focus/DND ($($DM status)); waiting silently, no banner" >&2; said=true; }
+        (( SECONDS - t0 > 540 )) && { echo "demo mode or Focus/DND on ($($DM status)): Matt is busy. Don't ask again or act on his screen until it ends; do headless work only."; exit 1; }
         sleep 5
       done
     fi
