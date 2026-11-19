@@ -142,6 +142,9 @@ local function _fullReload(reason)
   if activeWatchers.fullReloadWait then return end
   local function try()
     if hs.host.idleTime() < 30 then return false end
+    -- Sitting still in the morning check-in counts as idle; never reload under it (2026-11-19).
+    local fc = package.loaded["modules.forced_checkin"]
+    if fc and fc.running and fc.running() then return false end
     local mtg = package.loaded["modules.main_thread_guard"]
     if mtg and mtg.log then mtg.log("full reload (idle): " .. table.concat(_fullReloadReasons, ", ")) end
     hs.reload()
@@ -291,6 +294,7 @@ safeRegister("modules.piano_lock") -- scale-lock controller only: writes the fil
 safeRegister("modules.song_key")
 safeRegister("modules.bottom_bar") -- global bottom bar: pinned items left, front app's items right
 safeRegister("modules.open_questions") -- ask-matt questions: bar item + bubble that pesters until answered
+safeRegister("modules.agent_replies") -- agent DONE/NEEDS-YOU reports: quiet bar item beside the questions item, click opens the thread
 safeRegister("modules.otp_copy") -- 2FA codes from Messages/Mail → clipboard (G- stripped)
 safeRegister("modules.fade_skip") -- media keys fade the song out before skipping
 safeRegister("modules.play_pause_muzak") -- play/pause key → Muzak (mc toggle), never Apple Music
