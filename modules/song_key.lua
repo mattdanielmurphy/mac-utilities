@@ -697,9 +697,16 @@ end
 -- audiotee (local patch, ~/projects/external/audiotee) now removes its tap on SIGTERM, a closed
 -- pipe or a dead parent, so everything here asks first and force-kills only stragglers.
 local ORPHANS = [[/bin/ps -axo pid=,ppid=,comm= | /usr/bin/awk '$2 == 1 && $3 ~ /audiotee$/ {print $1}' | /usr/bin/xargs kill -%s 2>/dev/null]]
+-- Shell one-liners run in a child (hs.task), never hs.execute: at load 36 one ps|awk|kill took
+-- 1.1 s on the main thread (song_key.lua:702, 2026-11-19). Capped at 5 s.
+local function shAsync(cmd)
+  local t = hs.task.new("/bin/sh", nil, { "-c", cmd })
+  if not (t and t:start()) then return end
+  hs.timer.doAfter(5, function() if t:isRunning() then t:terminate() end end)
+end
 local function killOrphanTaps()
-  hs.execute(ORPHANS:format("TERM"))
-  hs.timer.doAfter(3, function() hs.execute(ORPHANS:format("9")) end)
+  shAsync(ORPHANS:format("TERM"))
+  hs.timer.doAfter(3, function() shAsync(ORPHANS:format("9")) end)
 end
 
 function stopListener()
@@ -708,7 +715,7 @@ function stopListener()
     activeWatchers.songKeyListen = nil
     local pid = t:pid()
     t:terminate() -- song-key-listen stops audiotee politely (2.5 s limit)
-    if pid then hs.timer.doAfter(3.5, function() hs.execute("/usr/bin/pkill -9 -P " .. pid) end) end
+    if pid then hs.timer.doAfter(3.5, function() shAsync("/usr/bin/pkill -9 -P " .. pid) end) end
   end
   killOrphanTaps()
 end
