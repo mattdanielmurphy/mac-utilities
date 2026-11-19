@@ -312,7 +312,9 @@ safeRegister("modules.thread_effort") -- Tweaks panel "Claude threads": token th
 safeRegister("modules.state_files") -- live state as files (state/live/), so scripts never poll `hs`
 safeRegister("modules.gif_picker") -- ⌃⌥⌘G: curated GIFs (Are.na) + Reddit, click copies
 safeRegister("modules.readthrough_float") -- Readthrough floats beside Claude, per thread
-safeRegister("modules.claude_sidebar") -- ⌥T: your own Claude sidebar on the left of its window (2026-11-10)
+-- OFF 2026-11-18 18:45 (Matt: "disable sidebar, anything that might be causing issues"; Mac bogged down).
+-- Turn back on: uncomment the next line, then ~/projects/ai-os/scripts/hs_reload.sh.
+-- safeRegister("modules.claude_sidebar") -- ⌥T: your own Claude sidebar on the left of its window (2026-11-10)
 safeRegister("modules.new_task") -- ⌥N anywhere: the New task sheet (claude-palette app/task, 2026-11-11)
 safeRegister("modules.music_links") -- Tim + Paul chat: music.mattmurphy.ca links, post only on your "post <n>" (2026-11-16)
 safeRegister("modules.coach") -- coach replies, bar Logic item + puzzle window, stand-up break (ai-os services/coach, 2026-11-17)
