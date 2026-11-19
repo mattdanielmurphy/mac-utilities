@@ -301,10 +301,25 @@ M._focusOn = cached(10, function()
   local ok, cw = pcall(require, "modules.claude_warm")
   return ok and cw.focusOn and cw.focusOn() or false
 end)
-M._videoApp = cached(5, function()
-  local out = hs.execute("/usr/bin/pmset -g assertions")
-  return require("modules.playback_state").parseAssertions(out)
-end)
+-- pmset runs in a child (hs.task, 5 s cap), never hs.execute: forking a shell on the main thread
+-- under load blocked the keyboard (init.lua:230 froze 2.1 s at a reload at load 18, 2026-11-19).
+-- Returns the last answer (at most ~5 s old) and refreshes it in the background.
+local videoLast, videoAt, videoBusy = nil, -1e9, false
+M._videoApp = function()
+  if not videoBusy and hs.timer.secondsSinceEpoch() - videoAt >= 5 then
+    videoBusy = true
+    local t = hs.task.new("/usr/bin/pmset", function(_, out)
+      videoBusy, videoAt = false, hs.timer.secondsSinceEpoch()
+      videoLast = require("modules.playback_state").parseAssertions(out or "")
+    end, { "-g", "assertions" })
+    if t and t:start() then
+      hs.timer.doAfter(5, function() if t:isRunning() then t:terminate() end end)
+    else
+      videoBusy = false
+    end
+  end
+  return videoLast
+end
 -- Real keys, clicks and mouse moves only (shared clock in modules/input_arming.lua).
 M._mouseIdle = function() return require("modules.input_arming").idle() end
 
@@ -518,7 +533,11 @@ function M.start()
     local ok, err = pcall(M.tick)
     if not ok then print("eye_breaks tick error: " .. tostring(err)) end
   end)
-  M.tick()
+  activeWatchers.eyeFirstTick = hs.timer.doAfter(0, function() -- own turn, not inside the module start
+    activeWatchers.eyeFirstTick = nil
+    local ok, err = pcall(M.tick)
+    if not ok then print("eye_breaks tick error: " .. tostring(err)) end
+  end)
 end
 
 function M.stop()
@@ -528,7 +547,7 @@ function M.stop()
   end
   M.dismissOverlay()
   M.dismissEyeWash(true)
-  for _, k in ipairs({ "eyeDeferTimer", "eyeSnoozeTimer", "eyeKeyTap" }) do
+  for _, k in ipairs({ "eyeDeferTimer", "eyeSnoozeTimer", "eyeKeyTap", "eyeFirstTick" }) do
     if activeWatchers[k] then activeWatchers[k]:stop(); activeWatchers[k] = nil end
   end
   pendingSince = nil

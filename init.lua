@@ -244,6 +244,10 @@ local function startNext()
   end
   local ms = (hs.timer.absoluteTime() - t) / 1e6
   if ms > 50 then print(string.format("⏱ %s took %d ms to start", modulePath, math.floor(ms))) end
+  if ms > 150 then -- also in main_thread.log: the console keeps only ~100k chars, so a slow start got lost (2026-11-19)
+    local mtg = package.loaded["modules.main_thread_guard"]
+    if mtg and mtg.log then mtg.log(string.format("module start %s took %dms", modulePath, math.floor(ms))) end
+  end
   activeWatchers.moduleStartTimer = hs.timer.doAfter(0, startNext)
 end
 
