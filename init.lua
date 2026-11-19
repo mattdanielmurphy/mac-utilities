@@ -230,8 +230,22 @@ suite.startUpdater()
 -- (input_guard etc.) are live while later modules load, and every key press waits
 -- for the main thread. Yielding between modules lets typing through during a
 -- reload. Slow starts are logged so they can be fixed.
+--
+-- Gentle after a boot (2026-11-19): after the 14:04 forced restart the 1-minute load sat near 200
+-- while macOS restored apps, and modules started back to back (bottom_bar alone took 5.7 s).
+-- While the Mac is busy (first 10 minutes after boot, or 1-minute load over 24, modules/sysload),
+-- modules after the first five (keyboard basics and qwerty_midi, unchanged) start 0.5 s apart,
+-- 1.5 s while the load is over 48.
 local startQueue = {}
 local startedAt = hs.timer.absoluteTime()
+local QUICK_STARTS, startedCount = 5, 0
+local function startGap()
+  if startedCount < QUICK_STARTS then return 0 end
+  local okS, sysload = pcall(require, "modules.sysload")
+  if not okS or not sysload.busy() then return 0 end
+  local l = sysload.load1()
+  return (l and l > 48) and 1.5 or 0.5
+end
 local function startNext()
   local modulePath = table.remove(startQueue, 1)
   if not modulePath then
@@ -253,7 +267,8 @@ local function startNext()
     local mtg = package.loaded["modules.main_thread_guard"]
     if mtg and mtg.log then mtg.log(string.format("module start %s took %dms", modulePath, math.floor(ms))) end
   end
-  activeWatchers.moduleStartTimer = hs.timer.doAfter(0, startNext)
+  startedCount = startedCount + 1
+  activeWatchers.moduleStartTimer = hs.timer.doAfter(startGap(), startNext)
 end
 
 local function safeRegister(modulePath)

@@ -838,9 +838,25 @@ local function timedStart(task)
   end
 end
 
+-- Each check spawns nowplaying-cli (~20% CPU for a second under load) plus a player query. It ran
+-- every 4 s around the clock and was among the top processes after the 14:04 forced restart
+-- (2026-11-19). Now: every 4 s only while something played in the last 2 minutes; 12 s when
+-- nothing has; 20 s while the Mac is busy (first 10 min after boot, or 1-min load over 24),
+-- 8 s if a song is playing then.
+local IDLE_POLL, BUSY_POLL, RECENT = 12, 20, 120
+local lastPollAt = 0
+local function pollInterval(now)
+  if require("modules.sysload").busy() then return state.playing and 8 or BUSY_POLL end
+  if not state.playing and now - state.lastPlaying > RECENT then return IDLE_POLL end
+  return CFG.POLL
+end
+
 local function poll()
   if activeWatchers.songKeyPoll then return end    -- previous check still running
-  if hs.timer.secondsSinceEpoch() < pollSkipUntil then return end -- the Mac is slow to start processes
+  local nowP = hs.timer.secondsSinceEpoch()
+  if nowP < pollSkipUntil then return end -- the Mac is slow to start processes
+  if nowP - lastPollAt < pollInterval(nowP) - 0.5 then return end
+  lastPollAt = nowP
   activeWatchers.songKeyPoll = hs.task.new(CFG.NOWPLAYING, function(_, out)
     local lines = {}
     for line in ((out or "") .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
