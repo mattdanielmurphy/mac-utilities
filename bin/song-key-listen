@@ -86,6 +86,20 @@ def analyze(audio):
             "mode": f"{k} " + {"Ionian": "major", "Aeolian": "minor"}.get(mode, mode), "chroma": [round(float(x), 4) for x in c]}
 
 
+def stop_capture(p):
+    if p.poll() is not None:
+        return
+    p.terminate()
+    try:
+        p.stdout.close()
+    except Exception:
+        pass
+    try:
+        p.wait(timeout=2.5)
+    except subprocess.TimeoutExpired:
+        p.kill()
+
+
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--app":
         found = subprocess.run(["/usr/bin/pgrep", "-f", sys.argv[2] + "/"], capture_output=True, text=True)
@@ -103,10 +117,11 @@ def main():
     ff = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL)
     # Hammerspoon stops us with SIGTERM; take the capture process down too.
-    # SIGKILL: audiotee ignores SIGTERM/SIGINT, and every orphaned copy keeps a
-    # Core Audio tap open until coreaudiod chokes and dictation stops working.
+    # Ask first: audiotee (local patch, 2026-11-18) removes its Core Audio tap on
+    # SIGTERM or a closed pipe. A SIGKILLed copy left its tap running inside
+    # coreaudiod (150% CPU, keyboard freezes). Kill only if it hangs past 2.5 s.
     def stop(*_):
-        ff.kill()
+        stop_capture(ff)
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
     buf = np.zeros(0, dtype=np.float32)
@@ -122,7 +137,7 @@ def main():
             if len(buf) >= SR * STEP * 2:
                 print(json.dumps(analyze(buf)), flush=True)
     finally:
-        ff.kill()
+        stop_capture(ff)
 
 
 if __name__ == "__main__":

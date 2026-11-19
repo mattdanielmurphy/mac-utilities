@@ -692,10 +692,14 @@ function M.currentKey()
 end
 
 -- ── Listener (only runs while the pill is up) ─────────────────────────────────
--- audiotee ignores SIGTERM, and an orphaned copy holds a Core Audio tap open
--- forever; enough of them wedge coreaudiod and break dictation (2026-10-21).
+-- An orphaned or SIGKILLed audiotee leaves its Core Audio tap running inside coreaudiod; enough of
+-- them wedge it (dictation breaks, 150% CPU, 10 s keyboard freezes: 2026-10-21, 2026-11-18).
+-- audiotee (local patch, ~/projects/external/audiotee) now removes its tap on SIGTERM, a closed
+-- pipe or a dead parent, so everything here asks first and force-kills only stragglers.
+local ORPHANS = [[/bin/ps -axo pid=,ppid=,comm= | /usr/bin/awk '$2 == 1 && $3 ~ /audiotee$/ {print $1}' | /usr/bin/xargs kill -%s 2>/dev/null]]
 local function killOrphanTaps()
-  hs.execute([[/bin/ps -axo pid=,ppid=,comm= | /usr/bin/awk '$2 == 1 && $3 ~ /audiotee$/ {print $1}' | /usr/bin/xargs kill -9 2>/dev/null]])
+  hs.execute(ORPHANS:format("TERM"))
+  hs.timer.doAfter(3, function() hs.execute(ORPHANS:format("9")) end)
 end
 
 function stopListener()
@@ -703,8 +707,8 @@ function stopListener()
   if t then
     activeWatchers.songKeyListen = nil
     local pid = t:pid()
-    if pid then hs.execute("/usr/bin/pkill -9 -P " .. pid) end
-    t:terminate()
+    t:terminate() -- song-key-listen stops audiotee politely (2.5 s limit)
+    if pid then hs.timer.doAfter(3.5, function() hs.execute("/usr/bin/pkill -9 -P " .. pid) end) end
   end
   killOrphanTaps()
 end
