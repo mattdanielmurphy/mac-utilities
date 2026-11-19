@@ -64,6 +64,7 @@ local TWEAKS = {
   ["timing.playingMaxWait"] = { 600, min = 30, max = 3600, step = 30, note = "Seconds an ask waits while a show plays (for Allow or a pause) before giving up" },
   ["timing.fullscreenSettle"] = { 1.0, min = 0.3, max = 3, step = 0.1, note = "Seconds to let a fullscreen window finish exiting before Claude gets control" },
   ["look.bannerOpacity"] = { 0.95, min = 0.5, max = 1, step = 0.01, note = "Opacity of the full banner background" },
+  ["guard.cornerMargin"] = { 12, min = 0, max = 60, step = 2, note = "Points around the banner/pill that count as \"on it\": if your pointer is there when it appears, its clicks wait until the pointer leaves once" },
   ["timing.noLinkHint"] = { 2.5, min = 0.5, max = 8, step = 0.5, note = "Seconds the \"No thread linked\" hint shows after clicking a banner whose agent passed no thread" },
 }
 local T = hs and type(hs.reload) == "function" and require("modules.tweaks").open{ app = "Claude Take-Control Banner",
@@ -99,12 +100,12 @@ local playback = require("modules.playback_state")
 local state = "idle"     -- the banner holder's state
 local lightMode = false  -- the holder's tier
 local waiting = false    -- holder is waiting for Allow / a pause (a show is playing)
--- Input arming (Matt, 2026-11-14: "If it IS an emergency, don't let my stray typing key presses
--- control anything. I need to fully stop for a moment before I can control that input (and UI
--- should reflect this)."). A banner that appears while Matt is typing or moving the mouse is
--- locked: its buttons are dimmed and clicks do nothing (Stop and the Esc hold always work: they
--- are the safety exits), and a normal ask's countdown holds until he has been still for a moment
--- (modules/input_arming.lua, arm.seconds). Urgent asks still count down.
+-- Corner guard (Matt, 2026-11-19: "you only ever need to prevent me from being able to click on
+-- the notification IN THE CORNER when my cursor is ACTUALLY IN the corner. Otherwise, what are you
+-- waiting for?"; replaces the 2026-11-14 hold-still lock here). The banner and pill show and count
+-- down at once, and are clickable at once. Only when the pointer is already on one (plus
+-- guard.cornerMargin) as it appears are its buttons dimmed and clicks ignored, until the pointer
+-- leaves that area once (modules/corner_guard.lua). Stop and the Esc hold always work.
 local armed = true
 local reasonText = ""
 local remaining = 0
@@ -518,6 +519,7 @@ end
 
 local noLinkUntil = 0  -- a click on a banner with no thread flashes "No thread linked" until then
 local NO_LINK_FLASH = "No thread linked, so there's nothing to open"
+local LOCKED_HINT = "It appeared under your pointer: move off it once to use its buttons"
 
 local function render()
   if not activeWatchers.claudeControlCanvas then return end
@@ -543,7 +545,7 @@ local function render()
   -- Full banner: a hint line under the buttons (element 8) says what a click does.
   local hint = flash and NO_LINK_FLASH or linked and "Click anywhere to open its thread" or "No thread linked"
   if not armed then
-    local lockedHint = "Hold still a moment: buttons wake up when you stop typing and moving"
+    local lockedHint = LOCKED_HINT
     if lightMode or waiting then sub = lockedHint else hint = lockedHint end
   end
   for _, c in ipairs(allCanvases()) do
@@ -723,7 +725,7 @@ function M._snapshot(kind, dark, locked, path)
     local c = (kind == "wait" and waitCanvas or kind == "light" and lightCanvas or fullCanvas)(scr)
     c[2].text = kind == "full" and "Claude wants to take control in 3…" or "Claude, in 3: Screenshot test of the banner colours"
     c[3].text = kind == "full" and "Screenshot test  ·  Hands off the keyboard and mouse." or "Click: open thread  ·  Hold Esc: pause"
-    if kind == "full" then c[8].text = locked and "Hold still a moment: buttons wake up when you stop typing and moving" or "Click anywhere to open its thread" end
+    if kind == "full" then c[8].text = locked and LOCKED_HINT or "Click anywhere to open its thread" end
     if locked then dimButtons(c, true) end
     c:imageFromCanvas():saveToFile(path)
     c:delete()
@@ -791,11 +793,18 @@ local function begin(reason, seconds, light, isWaiting)
   drawBanner()
   armed = true
   if activeWatchers.claudeControlArm then activeWatchers.claudeControlArm:cancel() end
-  activeWatchers.claudeControlArm = require("modules.input_arming").arm{ onChange = function(a)
-    armed = a
-    for _, c in ipairs(allCanvases()) do dimButtons(c, not a) end
-    render()
-  end }
+  activeWatchers.claudeControlArm = require("modules.corner_guard").guard{
+    margin = T("guard.cornerMargin"),
+    rects = function()
+      local r = {}
+      for _, c in ipairs(allCanvases()) do r[#r + 1] = c:frame() end
+      return r
+    end,
+    onChange = function(a)
+      armed = a
+      for _, c in ipairs(allCanvases()) do dimButtons(c, not a) end
+      render()
+    end }
   render()
 
   -- One unbroken Esc hold: pause at holdPause, stop at holdStop. Only real key
@@ -844,7 +853,6 @@ local function begin(reason, seconds, light, isWaiting)
       end
       -- An agent's ask is granted only once its wrapper has polled: a wrapper that
       -- gave up never polls, so its ticket waits here and is dropped as an orphan.
-      if not armed and not (t and t.urgent) then render() return end  -- wait for Matt to pause
       local unpolled = t and t.agent and t.agent ~= "" and not t.quiet and not t.polled
       if remaining > 1 or not unpolled then remaining = remaining - 1 end
       if remaining <= 0 then grant(active) end
