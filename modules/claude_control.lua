@@ -915,6 +915,7 @@ advance = function()
 end
 
 function M.ask(reason, seconds, urgent, quiet, agent, pid, light, link, key, bg)
+  if not quiet and require("modules.demo_mode").active() then return "demo" end -- demo mode: asks wait (bin/claude-control holds them)
   if key and byKey[key] and tickets[byKey[key]] then
     tickets[byKey[key]].seen = hs.timer.secondsSinceEpoch()
     return byKey[key]

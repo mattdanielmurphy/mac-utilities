@@ -16,6 +16,8 @@ require("modules.swallow_log") -- temporary: names the tap eating number keys (2
 -- Errors go to logs/errors.log, never a popped-up console; shared mode also hides the Dock/menu icons.
 local sharedProfile = (function() local f = io.open(os.getenv("HOME") .. "/.hammerspoon/profile") local p = f and f:read("l") if f then f:close() end return p == "shared" end)()
 require("modules.quiet_errors").install(sharedProfile)
+-- Demo mode: while state/demo_mode.json says so, nothing visible (bin/demo-mode on|off|status, 2026-11-19).
+pcall(function() require("modules.demo_mode").start() end)
 
 _G.activeWatchers = _G.activeWatchers or {}
 local activeWatchers = _G.activeWatchers
